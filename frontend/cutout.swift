@@ -1,7 +1,7 @@
 // Rebuilds the hero layers from the source art (macOS only: Vision subject lifting + CoreImage).
 //   swift frontend/cutout.swift ~/Downloads/dog.png /tmp/out
-//   cwebp -q 82 /tmp/out/bg.jpg -o frontend/assets/scene.webp
-//   cwebp -q 86 -alpha_q 90 /tmp/out/dog.png -o frontend/assets/dog.webp
+//   cwebp -q 82 /tmp/out/bg.jpg -o frontend/src/assets/scene.webp
+//   cwebp -q 86 -alpha_q 90 /tmp/out/dog.png -o frontend/src/assets/dog.webp
 // The whisker disc centre (885, 455) is specific to this artwork.
 import Vision
 import CoreImage

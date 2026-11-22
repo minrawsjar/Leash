@@ -12,3 +12,7 @@ docs/
 
 # Dotenv file
 .env
+
+# Frontend
+node_modules/
+frontend/dist/

@@ -240,16 +240,19 @@ contract Leash is BaseHook, IUnlockCallback {
         emit MandateCreated(id, msg.sender, key, amount0, amount1);
     }
 
-    /// @notice Ends the mandate: pulls the liquidity back and returns all inventory to the treasury.
+    /// @notice Ends the mandate: pulls the liquidity back and returns all inventory to the treasury. Open once the
+    ///         auction ends with no bids, as soon as the manager breaches, or at the end, after settling every
+    ///         remaining epoch here so a clean manager is always paid.
     function close(PoolKey calldata key) external {
         Mandate storage m = _live(key);
         if (msg.sender != m.treasury) revert NotTreasury();
-        // With no winning bidder, the treasury can leave as soon as the auction ends.
-        if (block.timestamp < (m.manager == address(0) ? m.terms.auctionEnd : _end(m))) revert NotEnded();
+        bool hired = m.manager != address(0);
+        if (!m.breached && block.timestamp < (hired ? _end(m) : m.terms.auctionEnd)) revert NotEnded();
+        while (hired && !m.breached && m.settled < m.terms.epochs) _settle(key, m, m.settled);
 
         m.closed = true;
         _move(key, m, 0, 0, 0);
-        if (m.manager != address(0)) owed[m.manager][_stable(key, m)] += m.bond;
+        if (hired) owed[m.manager][_stable(key, m)] += m.bond; // zero if slashed
         m.bond = 0;
 
         (uint256 a0, uint256 a1) = (m.idle0 + m.fees0, m.idle1 + m.fees1);

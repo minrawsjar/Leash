@@ -404,6 +404,14 @@ contract LeashTest is Test, Deployers {
         vm.warp(auctionEnd + 2 days);
         vm.expectRevert(Leash.Breached.selector);
         leash.settle(key, 1);
+
+        // The treasury doesn't wait for the mandate to run out.
+        leash.close(key);
+        assertEq(manager.getLiquidity(key.toId()), 0);
+        assertEq(leash.owed(alice, currency1), 0, "no bond back");
+        _assertLedger();
+        leash.claim(currency1);
+        assertEq(_bal(currency1, address(leash)), 0);
     }
 
     /// Pushed out of range for one block and straight back: the TWAP barely moves, the epoch stays clean.
@@ -447,6 +455,29 @@ contract LeashTest is Test, Deployers {
         assertApproxEqAbs(_bal(currency1, address(this)) - before1, 100e18, 4, "treasury got currency1 back");
         assertEq(leash.owed(alice, currency1), 10e18, "bond returned");
         assertEq(manager.getLiquidity(key.toId()), 0);
+    }
+
+    /// Nobody settled during the mandate: close settles all three epochs before handing the treasury its funds.
+    function test_close_paysCleanManagerFirst() public {
+        _win();
+        swap(key, true, -10e18, ZERO_BYTES);
+        vm.warp(auctionEnd + 3 days);
+        leash.close(key);
+
+        EpochRecord memory e0 = leash.epochRecord(key.toId(), 0);
+        assertApproxEqAbs(e0.fees0, 0.1e18, 2);
+        assertEq(leash.owed(alice, currency0), uint256(e0.fees0) * 3000 / 10_000);
+        assertEq(leash.owed(alice, currency1), 10e18, "bond back");
+        (uint32 clean,) = leash.records(alice);
+        assertEq(clean, 3);
+        assertEq(_m().settled, 3);
+        _assertLedger();
+        vm.startPrank(alice);
+        leash.claim(currency0);
+        leash.claim(currency1);
+        vm.stopPrank();
+        assertEq(_bal(currency0, address(leash)), 0);
+        assertEq(_bal(currency1, address(leash)), 0);
     }
 
     function test_close_noBids_afterAuction() public {

@@ -312,6 +312,86 @@ contract LeashTest is Test, Deployers {
         assertEq(leash.currentEpoch(key), 1);
     }
 
+    /// A keeper checkpointing every minute until `until`.
+    function _keep(uint256 until) internal {
+        while (block.timestamp + 1 minutes <= until) {
+            vm.warp(block.timestamp + 1 minutes);
+            vm.roll(block.number + 1);
+            leash.checkpoint(key);
+        }
+    }
+
+    /// The TWAP leaves the range after a spike and drifts back on its own while nobody checkpoints. The manager
+    /// checkpoints once it's back (here via setFee): the stretch since the last bad checkpoint is still booked out.
+    /// Judged by its end alone, the last 110 minutes would have been booked in.
+    function test_checkpoint_whitewashAttemptBooksTheBadStretchOut() public {
+        _win();
+        vm.warp(auctionEnd + 1 hours);
+        _swapTo(false, 100e18, 3000); // checkpoint: compliant so far
+        vm.warp(block.timestamp + 10 minutes);
+        _swapTo(true, 100e18, 0); // checkpoint sees the TWAP at 1000, out; the TWAP is back in range by +34m
+        vm.warp(auctionEnd + 3 hours);
+        assertLt(leash.twapTick(key), 600, "back in range");
+        vm.prank(alice);
+        leash.setFee(key, 10_000);
+
+        EpochRecord memory e = leash.epochRecord(key.toId(), 0);
+        assertEq(e.inSecs, 1 hours);
+        assertEq(e.outSecs, 2 hours, "10m seen out + 110m not proven in");
+    }
+
+    /// Spot at 900 for 130 min: the TWAP is out of [-600, 600) for exactly 2h (from +20m to +2h20m). With a
+    /// keeper every minute, the booking is exact up to one interval at each edge.
+    function test_checkpoint_keeperBooksOutStretchWithinOneIntervalPerEdge() public {
+        _win();
+        _keep(auctionEnd + 1 hours);
+        _swapTo(false, 100e18, 900);
+        _keep(block.timestamp + 130 minutes);
+        _swapTo(true, 100e18, 0);
+        _keep(block.timestamp + 1 hours);
+
+        EpochRecord memory e = leash.epochRecord(key.toId(), 0);
+        assertGe(e.outSecs, 2 hours, "never under-books");
+        assertLe(e.outSecs, 2 hours + 2 minutes, "one keeper interval per edge");
+        assertEq(e.inSecs + e.outSecs, block.timestamp - auctionEnd);
+    }
+
+    /// In range all epoch, with swaps, keeper checkpoints and a rebalance: every second is booked in.
+    function test_checkpoint_compliantManagerUnaffected() public {
+        _win();
+        for (uint256 i = 1; i <= 144; i++) {
+            vm.warp(auctionEnd + i * 10 minutes);
+            vm.roll(block.number + 1);
+            if (i % 6 == 0) swap(key, i % 12 == 0, -1e18, ZERO_BYTES);
+            if (i == 72) {
+                vm.prank(alice);
+                leash.rebalance(key, -1200, 1200, 1_000e18);
+            }
+            leash.checkpoint(key);
+        }
+        leash.settle(key, 0);
+        EpochRecord memory e = leash.epochRecord(key.toId(), 0);
+        assertEq(e.inSecs, 1 days);
+        assertEq(e.outSecs, 0);
+        assertTrue(e.clean);
+    }
+
+    /// A rebalance that restores compliance counts from the fix, not from the next checkpoint.
+    function test_checkpoint_fixCountsFromTheRebalance() public {
+        _win();
+        _swapTo(false, 100e18, 900);
+        vm.warp(block.timestamp + 1 hours);
+        leash.checkpoint(key); // out: TWAP 900
+        vm.prank(alice);
+        leash.rebalance(key, 600, 1200, 1_000e18);
+        vm.warp(block.timestamp + 1 hours);
+        leash.checkpoint(key);
+
+        EpochRecord memory e = leash.epochRecord(key.toId(), 0);
+        assertEq(e.outSecs, 1 hours);
+        assertEq(e.inSecs, 1 hours);
+    }
+
     /// Glide path 55% -> 90% stablecoin. Buyers take currency0 for stablecoin through the position, pushing the
     /// stable share to ~59%: ahead of the path for now, so out of compliance; on pace again a day later.
     function test_pace_sellingAheadOfGlidePathIsOutOfCompliance() public {

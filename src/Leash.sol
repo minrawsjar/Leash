@@ -48,12 +48,21 @@ struct Mandate {
     uint256 bond;
     uint256 idle0; // treasury inventory held by the hook, outside the position
     uint256 idle1;
+    uint256 fees0; // LP fees collected but not yet settled; kept out of idle so they can't be redeployed
+    uint256 fees1;
     int24 tickLower; // the hook's single position in this pool
     int24 tickUpper;
     uint128 liquidity;
     uint40 lastCheck; // compliance is accounted up to here
+    uint16 settled; // epochs settled so far; settlement goes in order
+    bool breached; // an epoch missed its uptime: bond slashed, manager fired
     bool closed;
     Terms terms;
+}
+
+struct TrackRecord {
+    uint32 clean;
+    uint32 breached;
 }
 
 struct EpochRecord {
@@ -108,11 +117,16 @@ contract Leash is BaseHook, IUnlockCallback {
     error TooShallow();
     error RangeMissesTwap();
     error SpotOffTwap();
+    error Breached();
+    error BadEpoch();
 
     event MandateCreated(PoolId indexed id, address indexed treasury, PoolKey key, uint256 amount0, uint256 amount1);
     event Bid(PoolId indexed id, address indexed bidder, uint256 amount);
     event Rebalanced(PoolId indexed id, int24 tickLower, int24 tickUpper, uint128 liquidity);
     event FeeSet(PoolId indexed id, uint24 fee);
+    event EpochSettled(
+        PoolId indexed id, uint256 indexed epoch, bool clean, uint256 pay0, uint256 pay1, uint256 slashed
+    );
     event Closed(PoolId indexed id);
 
     mapping(PoolId => Mandate) internal _mandates;
@@ -120,6 +134,8 @@ contract Leash is BaseHook, IUnlockCallback {
     mapping(PoolId => mapping(uint256 => EpochRecord)) internal _epochs;
     /// @notice Pull payments (outbid bonds, returned bonds, pay): owed[account][currency].
     mapping(address => mapping(Currency => uint256)) public owed;
+    /// @notice Each manager's settled epochs, across all mandates.
+    mapping(address => TrackRecord) public records;
 
     constructor(IPoolManager pm) BaseHook(pm) {}
 
@@ -236,8 +252,8 @@ contract Leash is BaseHook, IUnlockCallback {
         if (m.manager != address(0)) owed[m.manager][_stable(key, m)] += m.bond;
         m.bond = 0;
 
-        (uint256 a0, uint256 a1) = (m.idle0, m.idle1);
-        (m.idle0, m.idle1) = (0, 0);
+        (uint256 a0, uint256 a1) = (m.idle0 + m.fees0, m.idle1 + m.fees1);
+        (m.idle0, m.idle1, m.fees0, m.fees1) = (0, 0, 0, 0);
         _push(key.currency0, m.treasury, a0);
         _push(key.currency1, m.treasury, a1);
         emit Closed(key.toId());
@@ -268,7 +284,9 @@ contract Leash is BaseHook, IUnlockCallback {
         int256 gap = int256(spot) - twap;
         if ((gap < 0 ? -gap : gap) > int256(uint256(m.terms.maxTickDeviation))) revert SpotOffTwap();
         _checkpoint(key, m);
-        _place(key, m, twap, tickLower, tickUpper, liquidity);
+        (uint256 f0, uint256 f1) = _place(key, m, twap, tickLower, tickUpper, liquidity);
+        EpochRecord storage r = _epochs[id][_epochAt(m)];
+        (r.fees0, r.fees1) = (r.fees0 + uint128(f0), r.fees1 + uint128(f1));
         emit Rebalanced(id, tickLower, tickUpper, liquidity);
     }
 
@@ -282,10 +300,52 @@ contract Leash is BaseHook, IUnlockCallback {
 
     // ---------------------------------------------------------------- anyone
 
+    /// @notice Judges a finished epoch, in order. Clean: the manager earns managerFeeBps of its LP fees.
+    ///         Missed uptime: the whole bond goes to the treasury and the manager is fired.
+    function settle(PoolKey calldata key, uint256 epoch) external {
+        Mandate storage m = _live(key);
+        if (m.manager == address(0)) revert NotActive();
+        if (m.breached) revert Breached();
+        if (epoch != m.settled || epoch >= m.terms.epochs) revert BadEpoch();
+        _settle(key, m, epoch);
+    }
+
     function claim(Currency c) external {
         uint256 a = owed[msg.sender][c];
         owed[msg.sender][c] = 0;
         _push(c, msg.sender, a);
+    }
+
+    function _settle(PoolKey calldata key, Mandate storage m, uint256 e) internal {
+        if (block.timestamp < m.terms.auctionEnd + (e + 1) * m.terms.epochLength) revert NotEnded();
+        _checkpoint(key, m);
+        PoolId id = key.toId();
+        EpochRecord storage r = _epochs[id][e];
+        // Poke the position to collect its fees. ponytail: fees are booked when collected, so a late settle books
+        // some of epoch e+1's fees to e. Settle promptly, or snapshot fee growth at epoch boundaries if it matters.
+        (uint256 f0, uint256 f1) = _move(key, m, m.tickLower, m.tickUpper, m.liquidity);
+        (uint256 fees0, uint256 fees1) = (r.fees0 + f0, r.fees1 + f1);
+        (r.fees0, r.fees1, r.settled) = (uint128(fees0), uint128(fees1), true);
+        r.clean = uint256(r.inSecs) * BPS >= uint256(m.terms.uptimeBps) * (uint256(r.inSecs) + r.outSecs);
+        m.settled = uint16(e + 1);
+
+        uint256 pay0;
+        uint256 pay1;
+        uint256 slashed;
+        if (r.clean) {
+            (pay0, pay1) = (fees0 * m.terms.managerFeeBps / BPS, fees1 * m.terms.managerFeeBps / BPS);
+            owed[m.manager][key.currency0] += pay0;
+            owed[m.manager][key.currency1] += pay1;
+            records[m.manager].clean++;
+        } else {
+            (slashed, m.bond, m.breached) = (m.bond, 0, true);
+            owed[m.treasury][_stable(key, m)] += slashed;
+            records[m.manager].breached++;
+        }
+        // The treasury keeps the rest of the fees as inventory.
+        (m.fees0, m.fees1) = (m.fees0 - fees0, m.fees1 - fees1);
+        (m.idle0, m.idle1) = (m.idle0 + fees0 - pay0, m.idle1 + fees1 - pay1);
+        emit EpochSettled(id, e, r.clean, pay0, pay1, slashed);
     }
 
     // ---------------------------------------------------------------- compliance
@@ -297,18 +357,18 @@ contract Leash is BaseHook, IUnlockCallback {
         uint256 start = m.terms.auctionEnd;
         uint256 from = m.lastCheck > start ? m.lastCheck : start;
         uint256 to = block.timestamp < _end(m) ? block.timestamp : _end(m);
-        if (to <= from || m.manager == address(0) || m.closed) return;
+        if (to <= from || m.manager == address(0) || m.breached || m.closed) return;
         m.lastCheck = uint40(to);
         (bool inRange, bool deep, bool onPace,) = _compliance(key, m);
         bool ok = inRange && deep && onPace;
 
-        mapping(uint256 => EpochRecord) storage records_ = _epochs[key.toId()];
+        mapping(uint256 => EpochRecord) storage book = _epochs[key.toId()];
         uint256 len = m.terms.epochLength;
         for (uint256 e = (from - start) / len; from < to; e++) {
             uint256 next = start + (e + 1) * len;
             uint32 secs = uint32((next < to ? next : to) - from);
-            if (ok) records_[e].inSecs += secs;
-            else records_[e].outSecs += secs;
+            if (ok) book[e].inSecs += secs;
+            else book[e].outSecs += secs;
             from += secs;
         }
     }
@@ -396,18 +456,28 @@ contract Leash is BaseHook, IUnlockCallback {
     // ---------------------------------------------------------------- liquidity
 
     /// Every position must hold at least the depth floor and straddle the TWAP.
-    function _place(PoolKey calldata key, Mandate storage m, int24 twap, int24 lo, int24 hi, uint128 liq) internal {
+    function _place(PoolKey calldata key, Mandate storage m, int24 twap, int24 lo, int24 hi, uint128 liq)
+        internal
+        returns (uint256, uint256)
+    {
         if (liq < m.terms.minLiquidity) revert TooShallow();
         if (twap < lo || twap >= hi) revert RangeMissesTwap();
-        _move(key, m, lo, hi, liq);
+        return _move(key, m, lo, hi, liq);
     }
 
-    function _move(PoolKey calldata key, Mandate storage m, int24 lo, int24 hi, uint128 liq) internal {
+    /// Replaces the position (or, given the same one, just collects its fees). Returns the fees collected.
+    function _move(PoolKey calldata key, Mandate storage m, int24 lo, int24 hi, uint128 liq)
+        internal
+        returns (uint256 f0, uint256 f1)
+    {
         bytes memory data = abi.encode(key, m.tickLower, m.tickUpper, m.liquidity, lo, hi, liq);
-        BalanceDelta d = abi.decode(poolManager.unlock(data), (BalanceDelta));
-        // Underflow here reverts the whole move: a position can't use more than this mandate's inventory.
-        m.idle0 = _apply(m.idle0, d.amount0());
-        m.idle1 = _apply(m.idle1, d.amount1());
+        (BalanceDelta d, BalanceDelta fees) = abi.decode(poolManager.unlock(data), (BalanceDelta, BalanceDelta));
+        (f0, f1) = (uint128(fees.amount0()), uint128(fees.amount1()));
+        // Fees wait outside idle until settled. Underflow here reverts the whole move: a position can't use more
+        // than this mandate's inventory (not bonds, other mandates, or unsettled fees).
+        m.idle0 = _apply(m.idle0, d.amount0() - fees.amount0());
+        m.idle1 = _apply(m.idle1, d.amount1() - fees.amount1());
+        (m.fees0, m.fees1) = (m.fees0 + f0, m.fees1 + f1);
         (m.tickLower, m.tickUpper, m.liquidity) = (lo, hi, liq);
     }
 
@@ -415,18 +485,22 @@ contract Leash is BaseHook, IUnlockCallback {
         (PoolKey memory key, int24 oldLo, int24 oldHi, uint128 oldLiq, int24 lo, int24 hi, uint128 liq) =
             abi.decode(data, (PoolKey, int24, int24, uint128, int24, int24, uint128));
 
-        BalanceDelta d; // removal returns principal plus earned fees, which stay treasury inventory
+        bool poke = lo == oldLo && hi == oldHi && liq == oldLiq; // zero-liquidity update: collect fees only
+        BalanceDelta d; // principal plus fees
+        BalanceDelta fees;
         if (oldLiq > 0) {
-            (d,) = poolManager.modifyLiquidity(key, ModifyLiquidityParams(oldLo, oldHi, -int256(uint256(oldLiq)), 0), "");
+            (d, fees) = poolManager.modifyLiquidity(
+                key, ModifyLiquidityParams(oldLo, oldHi, poke ? int256(0) : -int256(uint256(oldLiq)), 0), ""
+            );
         }
-        if (liq > 0) {
+        if (liq > 0 && !poke) {
             (BalanceDelta added,) =
                 poolManager.modifyLiquidity(key, ModifyLiquidityParams(lo, hi, int256(uint256(liq)), 0), "");
             d = d + added;
         }
         _resolve(key.currency0, d.amount0());
         _resolve(key.currency1, d.amount1());
-        return abi.encode(d);
+        return abi.encode(d, fees);
     }
 
     function _resolve(Currency c, int128 amount) internal {
@@ -450,6 +524,7 @@ contract Leash is BaseHook, IUnlockCallback {
     function _active(PoolKey calldata key) internal view returns (Mandate storage m) {
         m = _live(key);
         if (msg.sender != m.manager) revert NotManager();
+        if (m.breached) revert Breached();
         if (block.timestamp < m.terms.auctionEnd || block.timestamp >= _end(m)) revert NotActive();
     }
 

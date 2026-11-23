@@ -94,6 +94,20 @@ contract LeashTest is Test, Deployers {
         );
     }
 
+    /// The hook's balances are exactly the mandate's inventory, unsettled fees, the bond and what it owes.
+    function _assertLedger() internal view {
+        Mandate memory m = _m();
+        address[3] memory who = [address(this), alice, bob];
+        uint256 owed0;
+        uint256 owed1;
+        for (uint256 i; i < 3; i++) {
+            owed0 += leash.owed(who[i], currency0);
+            owed1 += leash.owed(who[i], currency1);
+        }
+        assertEq(_bal(currency0, address(leash)), m.idle0 + m.fees0 + owed0, "ledger == balance (0)");
+        assertEq(_bal(currency1, address(leash)), m.idle1 + m.fees1 + owed1 + m.bond, "ledger == balance (1)");
+    }
+
     function _win() internal {
         vm.prank(alice);
         leash.bid(key, 10e18);
@@ -251,8 +265,9 @@ contract LeashTest is Test, Deployers {
         vm.prank(alice);
         leash.rebalance(key, -600, 600, 100e18);
         Mandate memory m = _m();
-        assertEq(_bal(currency0, address(leash)), m.idle0, "ledger == balance (0)");
-        assertEq(_bal(currency1, address(leash)), m.idle1 + m.bond, "ledger == balance (1)");
+        assertGt(m.fees0, 0, "the swapper's fee was collected, outside idle");
+        assertEq(leash.epochRecord(key.toId(), 0).fees0, m.fees0, "booked to the current epoch");
+        _assertLedger();
     }
 
     /// The hook holds 110 currency1 (100 inventory + 10 bond). The range needs ~105 currency1:
@@ -321,6 +336,94 @@ contract LeashTest is Test, Deployers {
         vm.warp(auctionEnd + 1 days);
         (,, onPace,) = leash.compliance(key);
         assertTrue(onPace, "the glide path caught up");
+    }
+
+    // ---------------------------------------------------------------- settlement
+
+    function test_settle_cleanEpochPaysExactShare() public {
+        _win();
+        swap(key, true, -10e18, ZERO_BYTES); // 1% fee in currency0
+        vm.warp(block.timestamp + 1 hours);
+        vm.prank(alice);
+        leash.rebalance(key, -1200, 1200, 1_000e18); // collects the currency0 fee into epoch 0
+        swap(key, false, -10e18, ZERO_BYTES); // 1% fee in currency1, collected at settlement
+
+        vm.expectRevert(Leash.NotEnded.selector);
+        leash.settle(key, 0);
+        vm.warp(auctionEnd + 1 days);
+        vm.prank(bob); // anyone can settle
+        leash.settle(key, 0);
+
+        EpochRecord memory e = leash.epochRecord(key.toId(), 0);
+        assertTrue(e.settled && e.clean);
+        assertEq(e.outSecs, 0);
+        assertApproxEqAbs(e.fees0, 0.1e18, 2);
+        assertApproxEqAbs(e.fees1, 0.1e18, 2);
+        assertEq(leash.owed(alice, currency0), uint256(e.fees0) * 3000 / 10_000, "30% of fees0");
+        assertEq(leash.owed(alice, currency1), uint256(e.fees1) * 3000 / 10_000, "30% of fees1");
+        (uint32 clean, uint32 breached) = leash.records(alice);
+        assertEq(clean, 1);
+        assertEq(breached, 0);
+        assertEq(_m().fees0, 0, "the rest of the fees joined the inventory");
+        _assertLedger();
+
+        vm.expectRevert(Leash.BadEpoch.selector);
+        leash.settle(key, 0);
+        vm.expectRevert(Leash.NotEnded.selector);
+        leash.settle(key, 1);
+    }
+
+    /// Out of range for the last 2h of the epoch (8% > 5% allowed): the bond goes to the treasury.
+    function test_settle_breachSlashesBondAndFiresManager() public {
+        _win();
+        vm.warp(auctionEnd + 22 hours);
+        _swapTo(false, 100e18, 900);
+        vm.warp(auctionEnd + 1 days);
+        leash.settle(key, 0);
+
+        EpochRecord memory e = leash.epochRecord(key.toId(), 0);
+        assertFalse(e.clean);
+        assertEq(e.inSecs, 22 hours);
+        assertEq(e.outSecs, 2 hours);
+        Mandate memory m = _m();
+        assertTrue(m.breached);
+        assertEq(m.bond, 0);
+        assertEq(leash.owed(address(this), currency1), 10e18, "bond to the treasury");
+        assertEq(leash.owed(alice, currency0) + leash.owed(alice, currency1), 0, "no pay");
+        (uint32 clean, uint32 breached) = leash.records(alice);
+        assertEq(clean, 0);
+        assertEq(breached, 1);
+        _assertLedger();
+
+        vm.startPrank(alice);
+        vm.expectRevert(Leash.Breached.selector);
+        leash.rebalance(key, 600, 1200, 1_000e18);
+        vm.expectRevert(Leash.Breached.selector);
+        leash.setFee(key, 100);
+        vm.stopPrank();
+        vm.warp(auctionEnd + 2 days);
+        vm.expectRevert(Leash.Breached.selector);
+        leash.settle(key, 1);
+    }
+
+    /// Pushed out of range for one block and straight back: the TWAP barely moves, the epoch stays clean.
+    function test_settle_oneBadBlockDoesNotBreach() public {
+        _win();
+        vm.warp(auctionEnd + 6 hours);
+        _swapTo(false, 100e18, 900);
+        vm.roll(block.number + 1);
+        vm.warp(block.timestamp + 12);
+        _swapTo(true, 100e18, 0);
+        vm.warp(auctionEnd + 1 days);
+        leash.settle(key, 0);
+        assertTrue(leash.epochRecord(key.toId(), 0).clean);
+        assertEq(_m().bond, 10e18);
+    }
+
+    function test_settle_needsAManager() public {
+        vm.warp(auctionEnd + 1 days);
+        vm.expectRevert(Leash.NotActive.selector);
+        leash.settle(key, 0);
     }
 
     // ---------------------------------------------------------------- close

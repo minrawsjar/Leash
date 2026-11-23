@@ -193,6 +193,39 @@ contract LeashTest is Test, Deployers {
         leash.rebalance(key, -600, 600, 1e18);
     }
 
+    /// An attacker (or the manager's accomplice) pushes the price and the manager tries to re-centre on it
+    /// in the same transaction: the TWAP hasn't moved, so the guard refuses.
+    function test_rebalance_oneBlockManipulationRefused() public {
+        _win();
+        _swapTo(false, 100e18, 400);
+        vm.prank(alice);
+        vm.expectRevert(Leash.SpotOffTwap.selector);
+        leash.rebalance(key, 0, 1200, 1_000e18);
+
+        // A centred range is refused too: the spot is still 400 ticks off the TWAP.
+        vm.prank(alice);
+        vm.expectRevert(Leash.SpotOffTwap.selector);
+        leash.rebalance(key, -600, 600, 1_000e18);
+
+        // The price is pushed back next block; after honest trading time, a normal rebalance passes.
+        vm.roll(block.number + 1);
+        vm.warp(block.timestamp + 12);
+        _swapTo(true, 100e18, 0);
+        vm.warp(block.timestamp + 1 hours);
+        assertLe(leash.twapTick(key), 100);
+        vm.prank(alice);
+        leash.rebalance(key, -1200, 1200, 1_000e18);
+        assertEq(_m().tickLower, -1200);
+    }
+
+    function test_rebalance_followsSustainedMove() public {
+        _win();
+        _swapTo(false, 100e18, 400);
+        vm.warp(block.timestamp + 1 hours);
+        vm.prank(alice);
+        leash.rebalance(key, 0, 1200, 1_000e18); // the move is now the TWAP; re-centre on it
+    }
+
     function test_rebalance_rejectsShallowOrRangeMissingTwap() public {
         _win();
         vm.startPrank(alice);

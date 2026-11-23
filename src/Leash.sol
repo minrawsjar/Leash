@@ -89,6 +89,7 @@ contract Leash is BaseHook, IUnlockCallback {
     error FeeTooHigh();
     error TooShallow();
     error RangeMissesTwap();
+    error SpotOffTwap();
 
     event MandateCreated(PoolId indexed id, address indexed treasury, PoolKey key, uint256 amount0, uint256 amount1);
     event Bid(PoolId indexed id, address indexed bidder, uint256 amount);
@@ -219,10 +220,16 @@ contract Leash is BaseHook, IUnlockCallback {
     }
 
     /// @notice Moves the treasury's liquidity to a new range. Funds only ever move between the hook and the pool.
+    ///         Refused while the spot price is pushed away from the TWAP, so a manager can't sandwich the treasury.
     function rebalance(PoolKey calldata key, int24 tickLower, int24 tickUpper, uint128 liquidity) external {
         Mandate storage m = _active(key);
-        _place(key, m, _twap(key.toId(), m.terms.twapWindow), tickLower, tickUpper, liquidity);
-        emit Rebalanced(key.toId(), tickLower, tickUpper, liquidity);
+        PoolId id = key.toId();
+        int24 twap = _twap(id, m.terms.twapWindow);
+        (, int24 spot,,) = poolManager.getSlot0(id);
+        int256 gap = int256(spot) - twap;
+        if ((gap < 0 ? -gap : gap) > int256(uint256(m.terms.maxTickDeviation))) revert SpotOffTwap();
+        _place(key, m, twap, tickLower, tickUpper, liquidity);
+        emit Rebalanced(id, tickLower, tickUpper, liquidity);
     }
 
     function setFee(PoolKey calldata key, uint24 fee) external {

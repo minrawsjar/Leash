@@ -9,6 +9,7 @@ evm_version = "cancun"
 optimizer_runs = 800
 via_ir = false
 ffi = true
+fs_permissions = [{ access = "read-write", path = "./deployments" }, { access = "read", path = "./out" }]
 
 [rpc_endpoints]
 unichain_sepolia = "https://sepolia.unichain.org"

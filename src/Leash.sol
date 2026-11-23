@@ -5,6 +5,10 @@ import {BaseHook} from "./utils/BaseHook.sol";
 import {Hooks} from "v4-core/libraries/Hooks.sol";
 import {LPFeeLibrary} from "v4-core/libraries/LPFeeLibrary.sol";
 import {StateLibrary} from "v4-core/libraries/StateLibrary.sol";
+import {TickMath} from "v4-core/libraries/TickMath.sol";
+import {SqrtPriceMath} from "v4-core/libraries/SqrtPriceMath.sol";
+import {FullMath} from "v4-core/libraries/FullMath.sol";
+import {FixedPoint96} from "v4-core/libraries/FixedPoint96.sol";
 import {IPoolManager} from "v4-core/interfaces/IPoolManager.sol";
 import {IUnlockCallback} from "v4-core/interfaces/callback/IUnlockCallback.sol";
 import {PoolKey} from "v4-core/types/PoolKey.sol";
@@ -47,8 +51,18 @@ struct Mandate {
     int24 tickLower; // the hook's single position in this pool
     int24 tickUpper;
     uint128 liquidity;
+    uint40 lastCheck; // compliance is accounted up to here
     bool closed;
     Terms terms;
+}
+
+struct EpochRecord {
+    uint32 inSecs; // seconds the mandate was in compliance
+    uint32 outSecs;
+    uint128 fees0; // LP fees collected and attributed to this epoch
+    uint128 fees1;
+    bool settled;
+    bool clean;
 }
 
 /// One observation per block with a swap: the tick in force since the previous one, and the running sum.
@@ -61,6 +75,10 @@ struct Obs {
 // ponytail: fixed 1024 observations. A pool swapped every block on 1s blocks holds ~17 min of history, less than
 // a 30-min window, and the TWAP silently shortens to what is held. Upgrade: v3-style growable cardinality.
 uint256 constant OBS = 1024;
+uint256 constant BPS = 10_000;
+// ponytail: one checkpoint after a long quiet spell writes every epoch it spans (~22k gas each); the cap keeps that
+// under a block. Upgrade: checkpoint in bounded chunks.
+uint256 constant MAX_EPOCHS = 365;
 
 struct Oracle {
     uint16 index; // newest
@@ -99,6 +117,7 @@ contract Leash is BaseHook, IUnlockCallback {
 
     mapping(PoolId => Mandate) internal _mandates;
     mapping(PoolId => Oracle) internal _oracles;
+    mapping(PoolId => mapping(uint256 => EpochRecord)) internal _epochs;
     /// @notice Pull payments (outbid bonds, returned bonds, pay): owed[account][currency].
     mapping(address => mapping(Currency => uint256)) public owed;
 
@@ -132,6 +151,7 @@ contract Leash is BaseHook, IUnlockCallback {
         PoolId id = key.toId();
         (, int24 tick,,) = poolManager.getSlot0(id);
         _observe(_oracles[id], tick);
+        _checkpoint(key, _mandates[id]);
         return (this.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, 0);
     }
 
@@ -144,6 +164,24 @@ contract Leash is BaseHook, IUnlockCallback {
     function twapTick(PoolKey calldata key) external view returns (int24) {
         PoolId id = key.toId();
         return _twap(id, _mandates[id].terms.twapWindow);
+    }
+
+    /// @notice Epoch index at the current time: 0 before the auction ends, >= terms.epochs after the mandate ends.
+    function currentEpoch(PoolKey calldata key) external view returns (uint256) {
+        return _epochAt(_mandates[key.toId()]);
+    }
+
+    function epochRecord(PoolId id, uint256 epoch) external view returns (EpochRecord memory) {
+        return _epochs[id][epoch];
+    }
+
+    /// @notice The mandate's state right now, as the next checkpoint will judge it.
+    function compliance(PoolKey calldata key)
+        external
+        view
+        returns (bool inRange, bool deep, bool onPace, uint16 stableBps)
+    {
+        return _compliance(key, _mandates[key.toId()]);
     }
 
     // ---------------------------------------------------------------- treasury
@@ -166,7 +204,8 @@ contract Leash is BaseHook, IUnlockCallback {
         // The auction outlasts one TWAP window, so the oracle holds a full window before the manager can act.
         if (
             t.auctionEnd < block.timestamp + t.twapWindow || t.twapWindow == 0 || t.epochLength == 0 || t.epochs == 0
-                || t.maxFee > LPFeeLibrary.MAX_LP_FEE || t.minLiquidity == 0
+                || t.epochs > MAX_EPOCHS || t.maxFee > LPFeeLibrary.MAX_LP_FEE || t.minLiquidity == 0 || t.uptimeBps > BPS
+                || t.managerFeeBps > BPS || t.startStableBps > BPS || t.endStableBps > BPS
         ) revert BadTerms();
         id = key.toId();
         int24 tick = poolManager.initialize(key, sqrtPriceX96); // reverts if the pool already exists
@@ -228,6 +267,7 @@ contract Leash is BaseHook, IUnlockCallback {
         (, int24 spot,,) = poolManager.getSlot0(id);
         int256 gap = int256(spot) - twap;
         if ((gap < 0 ? -gap : gap) > int256(uint256(m.terms.maxTickDeviation))) revert SpotOffTwap();
+        _checkpoint(key, m);
         _place(key, m, twap, tickLower, tickUpper, liquidity);
         emit Rebalanced(id, tickLower, tickUpper, liquidity);
     }
@@ -235,6 +275,7 @@ contract Leash is BaseHook, IUnlockCallback {
     function setFee(PoolKey calldata key, uint24 fee) external {
         Mandate storage m = _active(key);
         if (fee > m.terms.maxFee) revert FeeTooHigh();
+        _checkpoint(key, m);
         poolManager.updateDynamicLPFee(key, fee);
         emit FeeSet(key.toId(), fee);
     }
@@ -245,6 +286,65 @@ contract Leash is BaseHook, IUnlockCallback {
         uint256 a = owed[msg.sender][c];
         owed[msg.sender][c] = 0;
         _push(c, msg.sender, a);
+    }
+
+    // ---------------------------------------------------------------- compliance
+
+    /// Credits the time since the last check to the epochs it spans, all in or all out of compliance. The position
+    /// and inventory only change at swaps and manager actions, which checkpoint first; the TWAP drifts in between,
+    /// so each interval is judged by its state at the end. Time before epoch 0 or after the mandate is ignored.
+    function _checkpoint(PoolKey calldata key, Mandate storage m) internal {
+        uint256 start = m.terms.auctionEnd;
+        uint256 from = m.lastCheck > start ? m.lastCheck : start;
+        uint256 to = block.timestamp < _end(m) ? block.timestamp : _end(m);
+        if (to <= from || m.manager == address(0) || m.closed) return;
+        m.lastCheck = uint40(to);
+        (bool inRange, bool deep, bool onPace,) = _compliance(key, m);
+        bool ok = inRange && deep && onPace;
+
+        mapping(uint256 => EpochRecord) storage records_ = _epochs[key.toId()];
+        uint256 len = m.terms.epochLength;
+        for (uint256 e = (from - start) / len; from < to; e++) {
+            uint256 next = start + (e + 1) * len;
+            uint32 secs = uint32((next < to ? next : to) - from);
+            if (ok) records_[e].inSecs += secs;
+            else records_[e].outSecs += secs;
+            from += secs;
+        }
+    }
+
+    /// In range: the TWAP is inside the position. Deep: liquidity at the floor. On pace: the stablecoin share of
+    /// inventory (idle + position, valued at the TWAP) is within the glide path.
+    function _compliance(PoolKey calldata key, Mandate storage m)
+        internal
+        view
+        returns (bool inRange, bool deep, bool onPace, uint16 stableBps)
+    {
+        int24 twap = _twap(key.toId(), m.terms.twapWindow);
+        inRange = m.tickLower <= twap && twap < m.tickUpper;
+        deep = m.liquidity >= m.terms.minLiquidity;
+
+        uint160 p = TickMath.getSqrtPriceAtTick(twap);
+        uint160 lo = TickMath.getSqrtPriceAtTick(m.tickLower);
+        uint160 hi = TickMath.getSqrtPriceAtTick(m.tickUpper);
+        (uint256 a0, uint256 a1) = (m.idle0, m.idle1);
+        if (p < hi) a0 += SqrtPriceMath.getAmount0Delta(p > lo ? p : lo, hi, m.liquidity, false);
+        if (p > lo) a1 += SqrtPriceMath.getAmount1Delta(lo, p < hi ? p : hi, m.liquidity, false);
+        uint256 v0 = FullMath.mulDiv(FullMath.mulDiv(a0, p, FixedPoint96.Q96), p, FixedPoint96.Q96); // in currency1
+        if (v0 + a1 > 0) stableBps = uint16(FullMath.mulDiv(m.terms.stableIs0 ? v0 : a1, BPS, v0 + a1));
+        onPace = stableBps <= _glide(m);
+    }
+
+    /// Max stablecoin share now: linear from startStableBps at epoch 0 to endStableBps at the mandate's end.
+    function _glide(Mandate storage m) internal view returns (uint256) {
+        (uint256 start, uint256 end) = (m.terms.auctionEnd, _end(m));
+        uint256 t = block.timestamp < start ? 0 : (block.timestamp > end ? end : block.timestamp) - start;
+        (uint256 a, uint256 b) = (m.terms.startStableBps, m.terms.endStableBps);
+        return b >= a ? a + (b - a) * t / (end - start) : a - (a - b) * t / (end - start);
+    }
+
+    function _epochAt(Mandate storage m) internal view returns (uint256) {
+        return block.timestamp < m.terms.auctionEnd ? 0 : (block.timestamp - m.terms.auctionEnd) / m.terms.epochLength;
     }
 
     // ---------------------------------------------------------------- oracle

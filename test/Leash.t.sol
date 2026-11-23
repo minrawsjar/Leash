@@ -14,7 +14,7 @@ import {PoolIdLibrary} from "v4-core/types/PoolId.sol";
 import {Currency} from "v4-core/types/Currency.sol";
 import {SwapParams} from "v4-core/types/PoolOperation.sol";
 import {PoolSwapTest} from "v4-core/test/PoolSwapTest.sol";
-import {Leash, Terms, Position, Mandate} from "../src/Leash.sol";
+import {Leash, Terms, Position, Mandate, EpochRecord} from "../src/Leash.sol";
 
 contract LeashTest is Test, Deployers {
     using PoolIdLibrary for PoolKey;
@@ -273,6 +273,54 @@ contract LeashTest is Test, Deployers {
         vm.stopPrank();
         (,,, uint24 lpFee) = manager.getSlot0(key.toId());
         assertEq(lpFee, 500);
+    }
+
+    // ---------------------------------------------------------------- compliance
+
+    /// Out of range from 12h into epoch 0, then nothing happens for a day: the quiet gap is split 12h/12h.
+    function test_checkpoint_splitsQuietGapAcrossEpochs() public {
+        _win();
+        vm.warp(auctionEnd + 12 hours);
+        _swapTo(false, 100e18, 900); // checkpoints [0, 12h) as in, then leaves the range
+        assertEq(leash.epochRecord(key.toId(), 0).inSecs, 12 hours);
+
+        vm.warp(auctionEnd + 36 hours);
+        vm.prank(alice);
+        leash.setFee(key, 10_000); // any action checkpoints
+        EpochRecord memory e0 = leash.epochRecord(key.toId(), 0);
+        EpochRecord memory e1 = leash.epochRecord(key.toId(), 1);
+        assertEq(e0.inSecs, 12 hours);
+        assertEq(e0.outSecs, 12 hours);
+        assertEq(e1.inSecs, 0);
+        assertEq(e1.outSecs, 12 hours);
+        assertEq(leash.currentEpoch(key), 1);
+    }
+
+    /// Glide path 55% -> 90% stablecoin. Buyers take currency0 for stablecoin through the position, pushing the
+    /// stable share to ~59%: ahead of the path for now, so out of compliance; on pace again a day later.
+    function test_pace_sellingAheadOfGlidePathIsOutOfCompliance() public {
+        key = PoolKey(currency0, currency1, LPFeeLibrary.DYNAMIC_FEE_FLAG, 10, IHooks(address(leash)));
+        Terms memory t = _terms();
+        (t.startStableBps, t.endStableBps) = (5500, 9000);
+        leash.createMandate(key, SQRT_PRICE_1_1, t, 100e18, 100e18, _initial());
+        _win();
+        (bool inRange,, bool onPace, uint16 stableBps) = leash.compliance(key);
+        assertTrue(onPace);
+        assertApproxEqAbs(stableBps, 5000, 1);
+
+        _swapTo(false, 100e18, 400);
+        vm.warp(block.timestamp + 1 hours);
+        (inRange,, onPace, stableBps) = leash.compliance(key);
+        assertTrue(inRange);
+        assertFalse(onPace);
+        assertGt(stableBps, 5800);
+        vm.prank(alice);
+        leash.setFee(key, 10_000);
+        assertEq(leash.epochRecord(key.toId(), 0).outSecs, 1 hours, "selling ahead counts as out");
+
+        vm.warp(auctionEnd + 1 days);
+        (,, onPace,) = leash.compliance(key);
+        assertTrue(onPace, "the glide path caught up");
     }
 
     // ---------------------------------------------------------------- close

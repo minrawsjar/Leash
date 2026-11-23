@@ -214,14 +214,17 @@ contract Leash is BaseHook, IUnlockCallback {
         Position calldata initial
     ) external returns (PoolId id) {
         // Native ETH is rejected: SafeTransferLib treats calls to address(0) as successful transfers.
-        if (address(key.hooks) != address(this) || key.fee != LPFeeLibrary.DYNAMIC_FEE_FLAG || key.currency0.isAddressZero()) {
+        if (
+            address(key.hooks) != address(this) || key.fee != LPFeeLibrary.DYNAMIC_FEE_FLAG
+                || key.currency0.isAddressZero()
+        ) {
             revert NotLeashPool();
         }
         // The auction outlasts one TWAP window, so the oracle holds a full window before the manager can act.
         if (
             t.auctionEnd < block.timestamp + t.twapWindow || t.twapWindow == 0 || t.epochLength == 0 || t.epochs == 0
-                || t.epochs > MAX_EPOCHS || t.maxFee > LPFeeLibrary.MAX_LP_FEE || t.minLiquidity == 0 || t.uptimeBps > BPS
-                || t.managerFeeBps > BPS || t.startStableBps > BPS || t.endStableBps > BPS
+                || t.epochs > MAX_EPOCHS || t.maxFee > LPFeeLibrary.MAX_LP_FEE || t.minLiquidity == 0
+                || t.uptimeBps > BPS || t.managerFeeBps > BPS || t.startStableBps > BPS || t.endStableBps > BPS
         ) revert BadTerms();
         id = key.toId();
         int24 tick = poolManager.initialize(key, sqrtPriceX96); // reverts if the pool already exists
@@ -418,7 +421,11 @@ contract Leash is BaseHook, IUnlockCallback {
         Obs memory last = o.obs[o.index];
         if (last.time == block.timestamp) return;
         uint16 i = uint16((o.index + 1) % OBS);
-        o.obs[i] = Obs(uint32(block.timestamp), tick, last.tickCumulative + int56(tick) * int56(uint56(block.timestamp - last.time)));
+        o.obs[i] = Obs(
+            uint32(block.timestamp),
+            tick,
+            last.tickCumulative + int56(tick) * int56(uint56(block.timestamp - last.time))
+        );
         o.index = i;
         if (o.count < OBS) o.count++;
     }

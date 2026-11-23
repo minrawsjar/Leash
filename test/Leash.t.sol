@@ -20,7 +20,8 @@ contract LeashTest is Test, Deployers {
     using PoolIdLibrary for PoolKey;
     using StateLibrary for *;
 
-    uint160 constant FLAGS = uint160(Hooks.BEFORE_INITIALIZE_FLAG | Hooks.BEFORE_ADD_LIQUIDITY_FLAG | Hooks.BEFORE_SWAP_FLAG);
+    uint160 constant FLAGS =
+        uint160(Hooks.BEFORE_INITIALIZE_FLAG | Hooks.BEFORE_ADD_LIQUIDITY_FLAG | Hooks.BEFORE_SWAP_FLAG);
 
     Leash leash;
     address alice = makeAddr("alice");

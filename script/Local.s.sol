@@ -129,11 +129,11 @@ contract Local is DeployLeash {
         vm.writeJson(vm.serializeString(o, "accounts", accounts), deploymentPath());
     }
 
-    function pk(uint32 i) public returns (uint256) {
+    function pk(uint32 i) public pure returns (uint256) {
         return vm.deriveKey(MNEMONIC, i);
     }
 
-    function addr(uint32 i) public returns (address) {
+    function addr(uint32 i) public pure returns (address) {
         return vm.addr(pk(i));
     }
 }

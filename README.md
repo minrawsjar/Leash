@@ -4,7 +4,7 @@
 
 Leash is a Uniswap v4 hook for onchain treasury market making. A token treasury deposits its inventory into the hook and posts a *mandate*: the rules a market maker must follow. Managers compete for the mandate by posting a first-loss bond. The winner runs the liquidity (where it sits, what fee it charges) but **can never withdraw it**. The hook checks the rules on every swap. A clean epoch pays the manager; a breach slashes the bond to the treasury.
 
-![Leash landing page: a puppy chasing coins is caught by a leash](docs/hero.webp)
+![Leash landing page, set as a term sheet: the headline "Hire a market maker. Keep the leash." beside Plate I, the leashed puppy](docs/hero.webp)
 
 > Built for the Uniswap Hook Incubator (UHI), cohort 11. Target chain: Unichain Sepolia.
 > This is work in progress. See [Status](#status) for what exists today and what is still being built.

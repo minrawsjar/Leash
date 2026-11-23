@@ -1,121 +1,184 @@
+import { AttackChart } from './AttackChart';
 import { LeashScene } from './LeashScene';
 
 const REPO = 'https://github.com/minrawsjar/Leash';
 
-const STEPS = [
-  ['Post a mandate', 'The treasury deposits token and stablecoin into the hook and sets the rules: target mix, minimum depth, fee cap, epochs.'],
-  ['Managers bid a bond', 'Market makers compete by posting a first-loss bond. The highest bond wins the mandate; outbid bonds are claimable straight away.'],
-  ["Steer, don't hold", 'The hook owns the liquidity. The manager moves ranges and sets fees inside the caps. Funds never leave the hook.'],
-  ['Every swap is checked', "In range, deep enough, on pace, measured on a TWAP so one swap can't fake it. A clean epoch pays the manager; a breach slashes the bond to the treasury."],
+// [clause, term, value, how the hook enforces it, built yet?]
+const TERMS: [string, string, string, string, boolean][] = [
+  ['1.1', 'Inventory', '2,000,000 TKN + 400,000 USDC', 'Deposited into the hook. Only the treasury can take it out.', true],
+  ['1.2', 'Bond', 'at least 25,000 USDC', 'Highest bond when the auction closes wins. Lost on a breach.', true],
+  ['1.3', 'Fee', 'at most 0.30%', 'setFee() refuses anything higher.', true],
+  ['1.4', 'Withdrawal by the manager', 'not possible', 'There is no function for it.', true],
+  ['1.5', 'Term', '4 epochs of 7 days', 'Each epoch is settled on its own.', false],
+  ['1.6', 'Placement', 'within 1% of the TWAP', 'rebalance() refuses ranges set off a pushed price.', false],
+  ['1.7', 'Depth', '$50,000 to move price 2%', 'Measured on every swap.', false],
+  ['1.8', 'Pace', 'USDC share ≤ 17% → 40%', 'Measured on every swap. Selling ahead of the line is dumping.', false],
+  ['1.9', 'Uptime', '95% of each epoch', 'Counted in seconds, so one bad block breaches nothing.', false],
 ];
 
-const CAN = [
-  ['Move liquidity', 'between ranges, as often as the market needs.'],
-  ['Set the swap fee', "up to the treasury's cap."],
-  ['Earn', 'a cut of swap fees for every clean epoch, plus an onchain track record.'],
+const STEPS: [string, string][] = [
+  ['Posting.', 'The treasury calls createMandate() with the terms and its tokens. The hook creates the pool itself, and nobody else can add liquidity to it, so the pool’s book is exactly the treasury’s position.'],
+  ['Auction.', 'Managers bid a bond in USDC. Each bid has to beat the last, and an outbid bond can be claimed back at once. When the auction closes, the highest bidder holds the mandate.'],
+  ['Management.', 'The manager gets two levers: rebalance(), which moves the liquidity to a new range, and setFee(). Neither takes an address. Tokens only travel between the hook and the pool.'],
+  ['Inspection.', 'Before every swap the hook records the price and checks the position: in range, deep enough, on pace. The seconds since the last swap go on the epoch’s record as in or out of compliance.'],
+  ['Settlement.', 'When an epoch ends anyone can settle it. Inside the allowance, the manager takes 30% of the fees the position earned. Outside it, the bond goes to the treasury. After the last epoch the treasury closes the mandate and takes everything back.'],
 ];
 
-const STOPS = [
-  ['Withdrawals.', 'No function sends inventory to the manager.'],
-  ['Off-market ranges.', 'Liquidity must sit near the TWAP, not a price pushed for one block.'],
-  ['Fee gouging.', "The fee can never exceed the mandate's cap."],
-  ['Outside LPs.', "The pool is the treasury's book alone, so depth and mix are measured exactly."],
+// Illustrative record: pay is 30% of fees; the allowance is 95% uptime.
+const EPOCHS = [
+  { n: 1, up: 99.4, fees: '3,912', outcome: '1,174 USDC to the manager', ok: true },
+  { n: 2, up: 98.1, fees: '4,406', outcome: '1,322 USDC to the manager', ok: true },
+  { n: 3, up: 91.7, fees: '2,980', outcome: '25,000 USDC bond to the treasury', ok: false },
 ];
-
-function Logo() {
-  return (
-    <svg width="30" height="30" viewBox="0 0 32 32" aria-hidden="true">
-      <circle cx="9" cy="9" r="6" fill="none" stroke="var(--leash)" strokeWidth="3.5" />
-      <path d="M13 13 Q 17 25 26 24" fill="none" stroke="var(--leash)" strokeWidth="3.5" strokeLinecap="round" />
-      <circle cx="26.5" cy="24" r="3.2" fill="var(--gold)" />
-    </svg>
-  );
-}
-
-const Rule = ({ items }: { items: string[][] }) => (
-  <ul>{items.map(([b, rest]) => <li key={b}><span><b>{b}</b> {rest}</span></li>)}</ul>
-);
+const FLOOR = 80; // the uptime bars start at 80% so the 95% line is readable
 
 export function App() {
   return (
-    <div className="wrap">
-      <header>
-        <a className="brand" href="#"><Logo />Leash</a>
-        <nav aria-label="Main">
-          <a className="hide-sm" href="#how">How it works</a>
-          <a className="hide-sm" href="#rules">The leash</a>
-          <a href={REPO}>GitHub</a>
-          <span className="btn" aria-disabled="true" title="The app opens once the hook is live on Unichain Sepolia">App · soon</span>
-        </nav>
+    <div className="page">
+      <header className="masthead">
+        <div className="masthead-top">
+          <a className="wordmark" href="#">Leash</a>
+          <nav aria-label="Sections">
+            <a href="#terms">Terms</a>
+            <a href="#runs">How it runs</a>
+            <a href="#attack">The attack</a>
+            <a href="#ledger">Ledger</a>
+            <a href={REPO}>Source ↗</a>
+          </nav>
+        </div>
+        <div className="masthead-meta mono">
+          <span>A Uniswap v4 hook for treasury market making</span>
+          <span>Unichain Sepolia · in development</span>
+        </div>
       </header>
 
       <main>
-        <div className="hero">
-          <div>
-            <div className="eyebrow mono">Uniswap v4 hook · Unichain</div>
-            <h1>Hire a market maker. <em>Keep the leash.</em></h1>
-            <p className="lede">
-              Token treasuries deposit inventory into a Uniswap v4 hook and post a mandate. Managers compete with a bond to
-              run it. They move ranges and set fees, but they can never withdraw. Every swap is checked against the rules.
-            </p>
-            <div className="ctas">
-              <a className="btn primary" href="#how">How it works</a>
-              <a className="btn" href={REPO}>View the code</a>
+        <section className="hero">
+          <h1><span>Hire a market maker.</span> <em>Keep the <span className="red">leash</span>.</em></h1>
+          <div className="hero-body">
+            <div className="deck">
+              <p>
+                Leash is a Uniswap v4 hook that holds a treasury’s tokens and lets a hired market maker run them. The
+                manager posts a bond, moves the liquidity and sets the fee. The hook checks every swap. The manager never
+                gets custody.
+              </p>
+              <p className="aside">
+                Token treasuries usually choose between dumping on the market, selling OTC at a discount, or handing their
+                inventory to a market maker they have to trust. Leash is a fourth option: sell only into real demand, at a
+                pace you set, without giving anyone the keys.
+              </p>
+              <p className="mono small">Built for the Uniswap Hook Incubator, cohort 11. Not audited.</p>
             </div>
-          </div>
-          <LeashScene />
-        </div>
-
-        <section id="how">
-          <h2>How it works</h2>
-          <p className="sub">
-            Market making and treasury diversification become the same trade. The treasury sells only into real buy demand,
-            at its own pace. No OTC dumps, no custody handover.
-          </p>
-          <div className="steps">
-            {STEPS.map(([title, body]) => <div className="card" key={title}><h3>{title}</h3><p>{body}</p></div>)}
+            <LeashScene />
           </div>
         </section>
 
-        <section id="rules">
-          <h2>The leash</h2>
-          <p className="sub">
-            Withdrawing is the easy attack to block. The real one is mispricing: moving the price, then trading against the
-            treasury's own liquidity. Leash prices every move against a time-weighted average.
+        <section id="terms">
+          <h2><span className="sec mono">§1</span>The terms</h2>
+          <p className="intro">
+            A mandate is a short list of numbers. Here is an example. Every term is enforced by the hook itself, at the
+            point named on the right.
           </p>
-          <div className="rules">
-            <div className="card free">
-              <h3>
-                <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true">
-                  <circle cx="12" cy="12" r="10" fill="var(--gold)" />
-                  <path d="M7 12.5l3.2 3L17 9" fill="none" stroke="#1a1206" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
-                The manager can
-              </h3>
-              <Rule items={CAN} />
-            </div>
-            <div className="card held">
-              <h3>
-                <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true">
-                  <circle cx="12" cy="12" r="10" fill="var(--leash)" />
-                  <rect x="8" y="11" width="8" height="6" rx="1.2" fill="#1a0705" />
-                  <path d="M9.5 11V9.5a2.5 2.5 0 0 1 5 0V11" fill="none" stroke="#1a0705" strokeWidth="1.8" />
-                </svg>
-                The leash stops
-              </h3>
-              <Rule items={STOPS} />
-            </div>
+          <table className="terms">
+            <thead>
+              <tr className="mono"><th>Clause</th><th>Term</th><th>Value</th><th>Enforced by</th><th>Status</th></tr>
+            </thead>
+            <tbody>
+              {TERMS.map(([n, term, value, how, live]) => (
+                <tr key={n}>
+                  <td className="mono num">{n}</td>
+                  <td className="term">{term}</td>
+                  <td className="mono value">{value}</td>
+                  <td className="how">{how}</td>
+                  <td className={`mono status ${live ? '' : 'pending'}`}>{live ? 'Built' : 'Building'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
+
+        <section id="runs">
+          <h2><span className="sec mono">§2</span>How a mandate runs</h2>
+          <div className="columns">
+            {STEPS.map(([head, body], i) => (
+              <p key={head}><span className="mono run">2.{i + 1}</span> <b>{head}</b> {body}</p>
+            ))}
           </div>
         </section>
 
-        <section>
-          <p className="quote">A market maker you never have to trust with the keys. <span>Free to make markets. Not free to run.</span></p>
+        <section id="attack" className="attack">
+          <h2><span className="sec mono">§3</span>Withdrawal was never the risk</h2>
+          <div className="attack-body">
+            <div>
+              <p>
+                Stopping a manager from withdrawing takes one missing function. The real risk is price. With the treasury
+                as the only liquidity in the pool, a manager could:
+              </p>
+              <ol>
+                <li>pull the liquidity, leaving the pool empty;</li>
+                <li>push the price down with a small swap;</li>
+                <li>put the liquidity back around the fake price;</li>
+                <li>buy the treasury’s tokens cheaply from another wallet.</li>
+              </ol>
+              <p>
+                Nothing is withdrawn and the treasury still loses. So Leash keeps its own time-weighted average price,
+                recorded once per block before the first swap. A price pushed for one block barely moves it, and
+                rebalance() refuses any range set while the price is far from the average.
+              </p>
+            </div>
+            <figure>
+              <AttackChart />
+              <figcaption><span className="mono">Fig. 1</span> One block of manipulation against a 30-block TWAP. Illustrative.</figcaption>
+            </figure>
+          </div>
+        </section>
+
+        <section id="ledger">
+          <h2><span className="sec mono">§4</span>The ledger</h2>
+          <p className="intro">
+            Each epoch is judged on time, not on single swaps. An example record, with the uptime allowance set at 95%:
+          </p>
+          <table className="ledger">
+            <thead>
+              <tr className="mono"><th>Epoch</th><th>Time in compliance</th><th>Swap fees</th><th>Outcome</th></tr>
+            </thead>
+            <tbody>
+              {EPOCHS.map((e) => (
+                <tr key={e.n}>
+                  <td className="mono num">{e.n}</td>
+                  <td>
+                    <div className="uptime">
+                      <div className="bar" style={{ width: `${((e.up - FLOOR) / (100 - FLOOR)) * 100}%` }} data-ok={e.ok || undefined} />
+                      <div className="line" style={{ left: `${((95 - FLOOR) / (100 - FLOOR)) * 100}%` }} />
+                    </div>
+                    <span className="mono small">{e.up.toFixed(1)}%</span>
+                  </td>
+                  <td className="mono value">{e.fees} USDC</td>
+                  <td className="outcome">
+                    <span className={`stamp mono ${e.ok ? '' : 'red'}`}>{e.ok ? 'Paid' : 'Slashed'}</span>
+                    {e.outcome}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <p className="mono small note">Bars run from 80% to 100%. The rule marks the 95% allowance.</p>
+        </section>
+
+        <section className="signed">
+          <h2 className="mono">Signed</h2>
+          <div className="sigs">
+            <div><span className="sig-line" />The treasury</div>
+            <div><span className="sig-line" />The manager</div>
+            <div><span className="sig-line hook">Leash.sol</span>The hook, which reads the terms on every swap</div>
+          </div>
         </section>
       </main>
 
-      <footer>
+      <footer className="mono small">
         <span>Leash · Uniswap Hook Incubator, cohort 11</span>
-        <span className="mono">Built on Uniswap v4 · Unichain Sepolia</span>
+        <a href={REPO}>github.com/minrawsjar/Leash</a>
+        <span>Not audited. Not for real funds yet.</span>
       </footer>
     </div>
   );

@@ -20,11 +20,11 @@ const K = 1.6;
 const REACH = 104 * K; // strap end → D-ring
 const SEGS = 34; // strap links; the hardware is one more, rigid link
 
-const LINES: [at: number, text: string, held: boolean][] = [
-  [0, 'A market maker chases every coin…', false],
-  [T.throw - 0.3, 'The treasury posts a mandate.', false],
-  [T.snap, 'Caught. Funds never leave the hook.', true],
-  [T.settle + 0.8, 'Free to make markets. Not free to run.', true],
+const LINES: [at: number, text: string][] = [
+  [0, 'The manager goes for the coins.'],
+  [T.throw - 0.3, 'The treasury posts a mandate.'],
+  [T.snap, 'Clipped. The inventory stays in the hook.'],
+  [T.settle + 0.8, 'Free to make markets. Not free to run.'],
 ];
 
 // [x, y, scale, delay in seconds] — glints on the coins in the art
@@ -99,6 +99,7 @@ export function LeashScene() {
   const dogRingRef = useRef<SVGPathElement>(null);
   const clipRingRef = useRef<SVGPathElement>(null);
   const flashRef = useRef<SVGCircleElement>(null);
+  const progressRef = useRef<HTMLElement>(null);
   const replay = useRef(() => {});
   const [line_, setLine] = useState(0);
 
@@ -106,7 +107,7 @@ export function LeashScene() {
   useEffect(() => {
     const world = worldRef.current!, dog = dogRef.current!, tail = tailRef.current!;
     const leash = leashRef.current!, shadow = shadowRef.current!, clip = clipRef.current!, flash = flashRef.current!;
-    const dogRing = dogRingRef.current!, clipRing = clipRingRef.current!;
+    const dogRing = dogRingRef.current!, clipRing = clipRingRef.current!, progress = progressRef.current!;
     const [base, quads, weaveA, weaveB, sheen, rim] = strapRef.current!.children as unknown as [
       SVGPathElement, SVGGElement, SVGPathElement, SVGPathElement, SVGPathElement, SVGPathElement,
     ];
@@ -169,6 +170,7 @@ export function LeashScene() {
 
       const i = LINES.findLastIndex(([at]) => t >= at);
       if (i !== shown) setLine((shown = i));
+      progress.style.transform = `scaleX(${clamp01(t / (T.settle + 0.8))})`;
     }
 
     // ?t=2.5 freezes the scene at that second (handy for screenshots).
@@ -190,10 +192,10 @@ export function LeashScene() {
     return () => { cancelAnimationFrame(raf); io.disconnect(); };
   }, []);
 
-  const [, caption, held] = LINES[line_];
+  const caption = LINES[line_][1];
   const dRing = 'M104 -12A12 12 0 0 0 104 12Z'; // D-ring: straight edge on the collar, bow toward the hook
   return (
-    <figure className="stage">
+    <figure className="plate">
       <svg ref={svgRef} viewBox="0 0 1402 1122" role="img"
         aria-label="A golden retriever puppy lunges at a pile of crypto coins until a red leash clips onto its bandana and holds it back.">
         <defs>
@@ -266,13 +268,12 @@ export function LeashScene() {
           <circle ref={flashRef} r="0" fill="none" stroke="#fff" strokeWidth="6" />
         </g>
       </svg>
-      <figcaption className="chip" data-held={held ? '' : undefined}><i /><span>{caption}</span></figcaption>
-      <button className="replay" type="button" aria-label="Replay animation" onClick={() => replay.current()}>
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"
-          strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-          <path d="M3 12a9 9 0 1 0 3-6.7" /><path d="M3 4v5h5" />
-        </svg>
-      </button>
+      <div className="progress" aria-hidden="true"><i ref={progressRef} /></div>
+      <figcaption>
+        <span className="mono">Plate I</span>
+        <span className="caption" aria-live="polite">{caption}</span>
+        <button className="mono replay" type="button" onClick={() => replay.current()}>Replay</button>
+      </figcaption>
     </figure>
   );
 }

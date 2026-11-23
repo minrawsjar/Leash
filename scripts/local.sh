@@ -20,10 +20,9 @@ until cast chain-id --rpc-url $RPC >/dev/null 2>&1; do
   sleep 0.2
 done
 
-forge build
+forge script script/Local.s.sol:Local --rpc-url $RPC --broadcast --slow
 mkdir -p deployments/abi
 jq .abi out/Leash.sol/Leash.json >deployments/abi/Leash.json
-forge script script/Local.s.sol:Local --rpc-url $RPC --broadcast --slow
 
 cat <<EOF
 

@@ -109,10 +109,12 @@ contract LeashTest is Test, Deployers {
         assertEq(_bal(currency1, address(leash)), m.idle1 + m.fees1 + owed1 + m.bond, "ledger == balance (1)");
     }
 
+    /// Alice wins; a keeper checkpoints as epoch 0 opens.
     function _win() internal {
         vm.prank(alice);
         leash.bid(key, 10e18);
         vm.warp(auctionEnd);
+        leash.checkpoint(key);
     }
 
     // ---------------------------------------------------------------- creation
@@ -507,6 +509,28 @@ contract LeashTest is Test, Deployers {
         leash.settle(key, 0);
         assertTrue(leash.epochRecord(key.toId(), 0).clean);
         assertEq(_m().bond, 10e18);
+    }
+
+    /// Fees from trading during the auction go to the treasury, not into epoch 0's pay.
+    function test_settle_feesEarnedBeforeHireGoToTreasury() public {
+        swap(key, true, -10e18, ZERO_BYTES); // 0.1 currency0 of fees, before anyone manages
+        vm.prank(alice);
+        leash.bid(key, 10e18);
+        vm.warp(auctionEnd);
+        uint256 idle0 = _m().idle0;
+        leash.checkpoint(key);
+        assertApproxEqAbs(_m().idle0 - idle0, 0.1e18, 2, "swept into the treasury's inventory");
+        assertTrue(_m().swept);
+
+        swap(key, false, -10e18, ZERO_BYTES); // 0.1 currency1 of fees, on alice's watch
+        vm.warp(auctionEnd + 1 days);
+        leash.settle(key, 0);
+        EpochRecord memory e = leash.epochRecord(key.toId(), 0);
+        assertEq(e.fees0, 0);
+        assertApproxEqAbs(e.fees1, 0.1e18, 2);
+        assertEq(leash.owed(alice, currency0), 0);
+        assertEq(leash.owed(alice, currency1), uint256(e.fees1) * 3000 / 10_000);
+        _assertLedger();
     }
 
     function test_settle_needsAManager() public {

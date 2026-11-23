@@ -55,8 +55,10 @@ struct Mandate {
     uint128 liquidity;
     uint40 lastCheck; // compliance is accounted up to here
     uint16 settled; // epochs settled so far; settlement goes in order
+    bool lastOk; // compliant at the last checkpoint or rebalance; starts true (see createMandate)
     bool breached; // an epoch missed its uptime: bond slashed, manager fired
     bool closed;
+    bool swept; // fees earned before the manager's first epoch went to the treasury
     Terms terms;
 }
 
@@ -236,6 +238,10 @@ contract Leash is BaseHook, IUnlockCallback {
         m.treasury = msg.sender;
         m.idle0 = amount0;
         m.idle1 = amount1;
+        // Epoch 0 opens presumed compliant: the treasury's own position straddles the opening price and the manager
+        // can't act before auctionEnd, so the first interval is judged by its end alone. A keeper checkpoint at
+        // auctionEnd makes that interval empty.
+        m.lastOk = true;
         m.terms = t;
         _pull(key.currency0, msg.sender, amount0);
         _pull(key.currency1, msg.sender, amount1);
@@ -289,10 +295,12 @@ contract Leash is BaseHook, IUnlockCallback {
         (, int24 spot,,) = poolManager.getSlot0(id);
         int256 gap = int256(spot) - twap;
         if ((gap < 0 ? -gap : gap) > int256(uint256(m.terms.maxTickDeviation))) revert SpotOffTwap();
+        _sweep(key, m);
         _checkpoint(key, m);
         (uint256 f0, uint256 f1) = _place(key, m, twap, tickLower, tickUpper, liquidity);
         EpochRecord storage r = _epochs[id][_epochAt(m)];
         (r.fees0, r.fees1) = (r.fees0 + uint128(f0), r.fees1 + uint128(f1));
+        m.lastOk = _ok(key, m); // the next interval starts from the fixed position
         emit Rebalanced(id, tickLower, tickUpper, liquidity);
     }
 
@@ -305,6 +313,14 @@ contract Leash is BaseHook, IUnlockCallback {
     }
 
     // ---------------------------------------------------------------- anyone
+
+    /// @notice Accounts compliance up to now. Anyone may call; keepers call it every minute or so, since each
+    ///         interval between checkpoints is booked in compliance only if it was compliant at both ends.
+    function checkpoint(PoolKey calldata key) external {
+        Mandate storage m = _live(key);
+        _sweep(key, m);
+        _checkpoint(key, m);
+    }
 
     /// @notice Judges a finished epoch, in order. Clean: the manager earns managerFeeBps of its LP fees.
     ///         Missed uptime: the whole bond goes to the treasury and the manager is fired.
@@ -324,6 +340,7 @@ contract Leash is BaseHook, IUnlockCallback {
 
     function _settle(PoolKey calldata key, Mandate storage m, uint256 e) internal {
         if (block.timestamp < m.terms.auctionEnd + (e + 1) * m.terms.epochLength) revert NotEnded();
+        _sweep(key, m);
         _checkpoint(key, m);
         PoolId id = key.toId();
         EpochRecord storage r = _epochs[id][e];
@@ -356,17 +373,19 @@ contract Leash is BaseHook, IUnlockCallback {
 
     // ---------------------------------------------------------------- compliance
 
-    /// Credits the time since the last check to the epochs it spans, all in or all out of compliance. The position
-    /// and inventory only change at swaps and manager actions, which checkpoint first; the TWAP drifts in between,
-    /// so each interval is judged by its state at the end. Time before epoch 0 or after the mandate is ignored.
+    /// Credits the time since the last check to the epochs it spans, all in or all out of compliance. The TWAP
+    /// drifts between checkpoints, so an interval counts as in only if the mandate was compliant at both ends:
+    /// waiting out a bad stretch and checkpointing once the TWAP is back still books it out. Over-books by at most
+    /// one interval per change of state. Time before epoch 0 or after the mandate is ignored.
     function _checkpoint(PoolKey calldata key, Mandate storage m) internal {
         uint256 start = m.terms.auctionEnd;
         uint256 from = m.lastCheck > start ? m.lastCheck : start;
         uint256 to = block.timestamp < _end(m) ? block.timestamp : _end(m);
         if (to <= from || m.manager == address(0) || m.breached || m.closed) return;
         m.lastCheck = uint40(to);
-        (bool inRange, bool deep, bool onPace,) = _compliance(key, m);
-        bool ok = inRange && deep && onPace;
+        bool okNow = _ok(key, m);
+        bool ok = okNow && m.lastOk;
+        m.lastOk = okNow;
 
         mapping(uint256 => EpochRecord) storage book = _epochs[key.toId()];
         uint256 len = m.terms.epochLength;
@@ -377,6 +396,23 @@ contract Leash is BaseHook, IUnlockCallback {
             else book[e].outSecs += secs;
             from += secs;
         }
+    }
+
+    /// Fees the position earned before the manager's first epoch are the treasury's. beforeSwap can't unlock, so
+    /// the first checkpoint(), rebalance or settle after the auction collects them straight into idle; only fees
+    /// collected after that are booked to epochs. ponytail: fees from swaps between auctionEnd and that call go to
+    /// the treasury too (the manager is underpaid by managerFeeBps of them, never overpaid); a keeper calling
+    /// checkpoint() at auctionEnd closes the gap.
+    function _sweep(PoolKey calldata key, Mandate storage m) internal {
+        if (m.swept || block.timestamp < m.terms.auctionEnd) return;
+        m.swept = true;
+        (uint256 f0, uint256 f1) = _move(key, m, m.tickLower, m.tickUpper, m.liquidity);
+        (m.fees0, m.fees1, m.idle0, m.idle1) = (m.fees0 - f0, m.fees1 - f1, m.idle0 + f0, m.idle1 + f1);
+    }
+
+    function _ok(PoolKey calldata key, Mandate storage m) internal view returns (bool) {
+        (bool inRange, bool deep, bool onPace,) = _compliance(key, m);
+        return inRange && deep && onPace;
     }
 
     /// In range: the TWAP is inside the position. Deep: liquidity at the floor. On pace: the stablecoin share of

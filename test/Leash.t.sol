@@ -109,10 +109,12 @@ contract LeashTest is Test, Deployers {
         assertEq(_bal(currency1, address(leash)), m.idle1 + m.fees1 + owed1 + m.bond, "ledger == balance (1)");
     }
 
+    /// Alice wins; a keeper checkpoints as epoch 0 opens.
     function _win() internal {
         vm.prank(alice);
         leash.bid(key, 10e18);
         vm.warp(auctionEnd);
+        leash.checkpoint(key);
     }
 
     // ---------------------------------------------------------------- creation
@@ -312,6 +314,86 @@ contract LeashTest is Test, Deployers {
         assertEq(leash.currentEpoch(key), 1);
     }
 
+    /// A keeper checkpointing every minute until `until`.
+    function _keep(uint256 until) internal {
+        while (block.timestamp + 1 minutes <= until) {
+            vm.warp(block.timestamp + 1 minutes);
+            vm.roll(block.number + 1);
+            leash.checkpoint(key);
+        }
+    }
+
+    /// The TWAP leaves the range after a spike and drifts back on its own while nobody checkpoints. The manager
+    /// checkpoints once it's back (here via setFee): the stretch since the last bad checkpoint is still booked out.
+    /// Judged by its end alone, the last 110 minutes would have been booked in.
+    function test_checkpoint_whitewashAttemptBooksTheBadStretchOut() public {
+        _win();
+        vm.warp(auctionEnd + 1 hours);
+        _swapTo(false, 100e18, 3000); // checkpoint: compliant so far
+        vm.warp(block.timestamp + 10 minutes);
+        _swapTo(true, 100e18, 0); // checkpoint sees the TWAP at 1000, out; the TWAP is back in range by +34m
+        vm.warp(auctionEnd + 3 hours);
+        assertLt(leash.twapTick(key), 600, "back in range");
+        vm.prank(alice);
+        leash.setFee(key, 10_000);
+
+        EpochRecord memory e = leash.epochRecord(key.toId(), 0);
+        assertEq(e.inSecs, 1 hours);
+        assertEq(e.outSecs, 2 hours, "10m seen out + 110m not proven in");
+    }
+
+    /// Spot at 900 for 130 min: the TWAP is out of [-600, 600) for exactly 2h (from +20m to +2h20m). With a
+    /// keeper every minute, the booking is exact up to one interval at each edge.
+    function test_checkpoint_keeperBooksOutStretchWithinOneIntervalPerEdge() public {
+        _win();
+        _keep(auctionEnd + 1 hours);
+        _swapTo(false, 100e18, 900);
+        _keep(block.timestamp + 130 minutes);
+        _swapTo(true, 100e18, 0);
+        _keep(block.timestamp + 1 hours);
+
+        EpochRecord memory e = leash.epochRecord(key.toId(), 0);
+        assertGe(e.outSecs, 2 hours, "never under-books");
+        assertLe(e.outSecs, 2 hours + 2 minutes, "one keeper interval per edge");
+        assertEq(e.inSecs + e.outSecs, block.timestamp - auctionEnd);
+    }
+
+    /// In range all epoch, with swaps, keeper checkpoints and a rebalance: every second is booked in.
+    function test_checkpoint_compliantManagerUnaffected() public {
+        _win();
+        for (uint256 i = 1; i <= 144; i++) {
+            vm.warp(auctionEnd + i * 10 minutes);
+            vm.roll(block.number + 1);
+            if (i % 6 == 0) swap(key, i % 12 == 0, -1e18, ZERO_BYTES);
+            if (i == 72) {
+                vm.prank(alice);
+                leash.rebalance(key, -1200, 1200, 1_000e18);
+            }
+            leash.checkpoint(key);
+        }
+        leash.settle(key, 0);
+        EpochRecord memory e = leash.epochRecord(key.toId(), 0);
+        assertEq(e.inSecs, 1 days);
+        assertEq(e.outSecs, 0);
+        assertTrue(e.clean);
+    }
+
+    /// A rebalance that restores compliance counts from the fix, not from the next checkpoint.
+    function test_checkpoint_fixCountsFromTheRebalance() public {
+        _win();
+        _swapTo(false, 100e18, 900);
+        vm.warp(block.timestamp + 1 hours);
+        leash.checkpoint(key); // out: TWAP 900
+        vm.prank(alice);
+        leash.rebalance(key, 600, 1200, 1_000e18);
+        vm.warp(block.timestamp + 1 hours);
+        leash.checkpoint(key);
+
+        EpochRecord memory e = leash.epochRecord(key.toId(), 0);
+        assertEq(e.outSecs, 1 hours);
+        assertEq(e.inSecs, 1 hours);
+    }
+
     /// Glide path 55% -> 90% stablecoin. Buyers take currency0 for stablecoin through the position, pushing the
     /// stable share to ~59%: ahead of the path for now, so out of compliance; on pace again a day later.
     function test_pace_sellingAheadOfGlidePathIsOutOfCompliance() public {
@@ -429,10 +511,97 @@ contract LeashTest is Test, Deployers {
         assertEq(_m().bond, 10e18);
     }
 
+    /// Fees from trading during the auction go to the treasury, not into epoch 0's pay.
+    function test_settle_feesEarnedBeforeHireGoToTreasury() public {
+        swap(key, true, -10e18, ZERO_BYTES); // 0.1 currency0 of fees, before anyone manages
+        vm.prank(alice);
+        leash.bid(key, 10e18);
+        vm.warp(auctionEnd);
+        uint256 idle0 = _m().idle0;
+        leash.checkpoint(key);
+        assertApproxEqAbs(_m().idle0 - idle0, 0.1e18, 2, "swept into the treasury's inventory");
+        assertTrue(_m().swept);
+
+        swap(key, false, -10e18, ZERO_BYTES); // 0.1 currency1 of fees, on alice's watch
+        vm.warp(auctionEnd + 1 days);
+        leash.settle(key, 0);
+        EpochRecord memory e = leash.epochRecord(key.toId(), 0);
+        assertEq(e.fees0, 0);
+        assertApproxEqAbs(e.fees1, 0.1e18, 2);
+        assertEq(leash.owed(alice, currency0), 0);
+        assertEq(leash.owed(alice, currency1), uint256(e.fees1) * 3000 / 10_000);
+        _assertLedger();
+    }
+
     function test_settle_needsAManager() public {
         vm.warp(auctionEnd + 1 days);
         vm.expectRevert(Leash.NotActive.selector);
         leash.settle(key, 0);
+    }
+
+    // ---------------------------------------------------------------- swaps never brick
+
+    /// A small swap each way. A revert here means the hook halted the pool.
+    function _swapBothWays() internal {
+        int24 t = _tick();
+        _swapTo(true, 1e15, t - 60);
+        _swapTo(false, 1e15, t + 60);
+    }
+
+    function test_swap_neverBricks_cleanLifecycle() public {
+        _swapBothWays(); // auction open, no bids
+        vm.prank(alice);
+        leash.bid(key, 10e18);
+        _swapBothWays(); // auction open, a bid
+        vm.warp(auctionEnd);
+        _swapBothWays(); // active
+        vm.warp(auctionEnd + 3 days + 1 hours);
+        _swapBothWays(); // ended, unsettled, not closed: books the tail
+        _swapBothWays();
+        leash.close(key);
+        _swapBothWays(); // closed, empty pool
+    }
+
+    function test_swap_neverBricks_noBids() public {
+        vm.warp(auctionEnd + 1 hours);
+        _swapBothWays();
+        leash.close(key);
+        _swapBothWays();
+    }
+
+    function test_swap_neverBricks_breached() public {
+        _win();
+        _swapTo(false, 100e18, 900);
+        vm.warp(auctionEnd + 1 days);
+        leash.settle(key, 0);
+        assertTrue(_m().breached);
+        _swapBothWays(); // breached, out of range
+        vm.warp(auctionEnd + 3 days + 1);
+        _swapBothWays(); // breached and ended
+        leash.close(key);
+        _swapBothWays();
+    }
+
+    /// Worst case for the checkpoint loop: 365 one-hour epochs and no activity at all until after the end.
+    /// The first swap afterwards books every epoch.
+    function test_swap_afterQuietGapAcrossAllEpochs() public {
+        key = PoolKey(currency0, currency1, LPFeeLibrary.DYNAMIC_FEE_FLAG, 10, IHooks(address(leash)));
+        Terms memory t = _terms();
+        (t.epochs, t.epochLength) = (365, 1 hours);
+        leash.createMandate(key, SQRT_PRICE_1_1, t, 100e18, 100e18, _initial());
+        vm.prank(alice);
+        leash.bid(key, 10e18);
+        vm.warp(auctionEnd + 366 hours);
+
+        int24 tick = _tick();
+        uint256 g = gasleft();
+        _swapTo(true, 1e15, tick - 60);
+        uint256 used = g - gasleft();
+        emit log_named_uint("swap gas after a quiet gap over 365 epochs", used);
+        assertLt(used, 10_000_000, "fits in a block");
+        assertEq(leash.epochRecord(key.toId(), 0).inSecs, 1 hours);
+        assertEq(leash.epochRecord(key.toId(), 364).inSecs, 1 hours);
+        _swapBothWays();
     }
 
     // ---------------------------------------------------------------- close

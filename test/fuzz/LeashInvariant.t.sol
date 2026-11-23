@@ -99,6 +99,10 @@ contract Handler is Test {
         } catch {}
     }
 
+    function checkpoint() external {
+        try leash.checkpoint(key) {} catch {}
+    }
+
     function close() external {
         Mandate memory m = leash.mandate(id);
         try leash.close(key) {
@@ -152,11 +156,17 @@ contract LeashInvariantTest is Test, Deployers {
         key = PoolKey(currency0, currency1, LPFeeLibrary.DYNAMIC_FEE_FLAG, 60, IHooks(hook));
         handler = new Handler(leash, swapRouter, key);
 
-        bytes4[] memory s = new bytes4[](8);
+        bytes4[] memory s = new bytes4[](9);
         (s[0], s[1], s[2], s[3]) =
         (Handler.bid.selector, Handler.rebalance.selector, Handler.setFee.selector, Handler.swap.selector);
-        (s[4], s[5], s[6], s[7]) =
-        (Handler.settle.selector, Handler.close.selector, Handler.claim.selector, Handler.warp.selector);
+        (s[4], s[5], s[6], s[7], s[8]) =
+        (
+            Handler.settle.selector,
+            Handler.close.selector,
+            Handler.claim.selector,
+            Handler.warp.selector,
+            Handler.checkpoint.selector
+        );
         targetSelector(FuzzSelector(address(handler), s));
         targetContract(address(handler));
     }

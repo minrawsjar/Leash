@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Keeper: every INTERVAL seconds (default 60), settles every ended, unsettled epoch of the pool in
-# deployments/<chainId>.json (script/Settle.s.sol). Signs with KEEPER_PRIVATE_KEY, which defaults to anvil
+# Keeper: every INTERVAL seconds (default 60), checkpoints compliance for the pool in deployments/<chainId>.json
+# and settles every ended, unsettled epoch (script/Settle.s.sol). Compliance is booked per interval between
+# checkpoints, so keep INTERVAL short. Signs with KEEPER_PRIVATE_KEY, which defaults to anvil
 # account #4 on the local chain. RPC_URL defaults to the local chain; use RPC_URL=unichain_sepolia for testnet.
 set -euo pipefail
 cd "$(dirname "$0")/.."

@@ -11,8 +11,9 @@ import {PoolId, PoolIdLibrary} from "v4-core/types/PoolId.sol";
 import {Currency} from "v4-core/types/Currency.sol";
 import {Leash, Mandate, EpochRecord} from "../src/Leash.sol";
 
-/// @notice Keeper: settles every ended, unsettled epoch of the pool in deployments/<chainId>.json, in order.
-///         It decides with views only, never try/catch: forge still broadcasts a call that reverted in a try.
+/// @notice Keeper for the pool in deployments/<chainId>.json: checkpoints compliance, then settles every ended,
+///         unsettled epoch in order. It decides with views only, never try/catch: forge still broadcasts a call
+///         that reverted in a try.
 contract Settle is Script {
     using PoolIdLibrary for PoolKey;
 
@@ -36,35 +37,68 @@ contract Settle is Script {
         require(pk != 0, "set KEEPER_PRIVATE_KEY");
 
         vm.startBroadcast(pk);
-        settleEnded(Leash(address(key.hooks)), key);
+        keep(Leash(address(key.hooks)), key);
         vm.stopBroadcast();
     }
 
+    /// @notice One keeper round: checkpoint compliance (and the first round after the auction sweeps
+    ///         pre-mandate fees to the treasury), then settle ended epochs in order.
+    /// @return checkpointed whether checkpoint() was called
     /// @return n how many epochs were settled
-    function settleEnded(Leash leash, PoolKey memory key) public returns (uint256 n) {
+    function keep(Leash leash, PoolKey memory key) public returns (bool checkpointed, uint256 n) {
         PoolId id = key.toId();
         Mandate memory m = leash.mandate(id);
-        if (m.treasury == address(0) || m.manager == address(0) || m.closed) {
-            console2.log("Skip: no mandate, no manager, or closed");
-            return 0;
+        if (m.treasury == address(0) || m.closed) {
+            console2.log("Skip: no mandate, or closed");
+            return (false, 0);
         }
+        uint256 start = m.terms.auctionEnd;
+        if (block.timestamp < start) {
+            console2.log("Auction still open");
+            return (false, 0);
+        }
+
+        // Each interval between checkpoints books "in" only if compliant at both ends, so call it every round
+        // while there is time to book (same conditions as Leash._checkpoint) or fees to sweep.
+        uint256 end = start + uint256(m.terms.epochLength) * m.terms.epochs;
+        uint256 from = m.lastCheck > start ? m.lastCheck : start;
+        uint256 to = block.timestamp < end ? block.timestamp : end;
+        if (!m.swept || (m.manager != address(0) && !m.breached && from < to)) {
+            leash.checkpoint(key);
+            checkpointed = true;
+            (bool inRange, bool deep, bool onPace, uint16 stableBps) = leash.compliance(key);
+            console2.log(
+                string.concat(
+                    "Checkpoint: ",
+                    inRange && deep && onPace ? "compliant" : "OUT of compliance",
+                    " (inRange ", vm.toString(inRange), ", deep ", vm.toString(deep), ", onPace ", vm.toString(onPace),
+                    ", stable ", vm.toString(stableBps), " bps)"
+                )
+            );
+        }
+        if (m.manager == address(0)) {
+            console2.log("No manager: nothing to settle");
+            return (checkpointed, 0);
+        }
+
         uint256 ended = leash.currentEpoch(key); // every epoch before the current one has ended
         if (ended > m.terms.epochs) ended = m.terms.epochs;
-
         // settle() demands e == m.settled, and a breach stops the mandate: re-read it after each one.
         while (!m.breached && m.settled < ended) {
             uint256 e = m.settled;
             leash.settle(key, e);
             EpochRecord memory r = leash.epochRecord(id, e);
             console2.log(
-                string.concat("Settled epoch ", vm.toString(e), r.clean ? ": clean, manager paid" : ": BREACH, bond slashed")
+                string.concat(
+                    "Settled epoch ", vm.toString(e), r.clean ? ": clean" : ": BREACH, bond slashed",
+                    " (in ", vm.toString(r.inSecs), "s, out ", vm.toString(r.outSecs), "s, fees ",
+                    vm.toString(r.fees0), " / ", vm.toString(r.fees1), ")"
+                )
             );
             m = leash.mandate(id);
             n++;
         }
         if (m.breached) console2.log("Mandate breached: nothing more to settle");
         else if (n == 0) console2.log("Nothing to settle; epochs settled so far:", m.settled);
-
-        // PHASE 2: call leash.checkpoint(key) here on every run, once the contract exposes it.
     }
 }

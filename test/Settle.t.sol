@@ -32,18 +32,39 @@ contract SettleTest is Test {
         (start, len) = (m.terms.auctionEnd, m.terms.epochLength);
     }
 
-    function test_settlesExactlyTheEndedEpochsInOrder_thenNoop() public {
-        assertEq(keeper.settleEnded(leash, key), 0, "nothing has ended during the auction");
+    function test_checkpointsThenSettlesExactlyTheEndedEpochsInOrder_thenNoop() public {
+        (bool checkpointed, uint256 n) = keeper.keep(leash, key);
+        assertFalse(checkpointed, "auction open: nothing to book");
+        assertEq(n, 0);
+
+        // First round after the auction: checkpoint books compliance and sweeps the setup swaps' fees to the treasury.
+        Mandate memory before = leash.mandate(id);
+        vm.warp(start + len / 2);
+        (checkpointed, n) = keeper.keep(leash, key);
+        assertTrue(checkpointed);
+        assertEq(n, 0, "epoch 0 still running");
+        Mandate memory m = leash.mandate(id);
+        assertTrue(m.swept);
+        assertGt(m.idle0, before.idle0, "pre-mandate fees went to the treasury (0)");
+        assertGt(m.idle1, before.idle1, "pre-mandate fees went to the treasury (1)");
+        assertEq(m.lastCheck, block.timestamp);
+        assertEq(leash.epochRecord(id, 0).inSecs, len / 2, "first half of epoch 0 booked in compliance");
+        (checkpointed,) = keeper.keep(leash, key);
+        assertFalse(checkpointed, "same second: nothing new to book");
 
         vm.warp(start + len + 1); // epoch 0 ended, epoch 1 running
-        assertEq(_settledEpochs(), _seq(0, 1));
-        assertEq(leash.mandate(id).settled, 1);
+        assertEq(_kept(), _seq(0, 1));
+        assertEq(leash.epochRecord(id, 0).inSecs, len, "all of epoch 0 in compliance");
         assertFalse(leash.epochRecord(id, 1).settled, "running epoch untouched");
-        assertEq(keeper.settleEnded(leash, key), 0, "no-op when run again");
+        (checkpointed, n) = keeper.keep(leash, key);
+        assertFalse(checkpointed);
+        assertEq(n, 0, "no-op when run again");
 
         vm.warp(start + 3 * len + 1 days); // well past the end: epochs 1 and 2 remain
-        assertEq(_settledEpochs(), _seq(1, 3));
-        assertEq(keeper.settleEnded(leash, key), 0, "no-op when run again");
+        assertEq(_kept(), _seq(1, 3));
+        (checkpointed, n) = keeper.keep(leash, key);
+        assertFalse(checkpointed, "mandate over and fully booked");
+        assertEq(n, 0);
 
         (uint32 clean, uint32 breached) = leash.records(local.addr(2));
         assertEq(clean, 3, "an idle manager on a compliant seed stays clean");
@@ -51,7 +72,9 @@ contract SettleTest is Test {
 
         vm.prank(local.addr(0));
         leash.close(key);
-        assertEq(keeper.settleEnded(leash, key), 0, "skips a closed mandate without reverting");
+        (checkpointed, n) = keeper.keep(leash, key);
+        assertFalse(checkpointed, "skips a closed mandate without reverting");
+        assertEq(n, 0);
     }
 
     function test_stopsAtABreach() public {
@@ -70,16 +93,18 @@ contract SettleTest is Test {
         );
 
         vm.warp(start + 3 * len); // every epoch ended
-        assertEq(_settledEpochs(), _seq(0, 1), "epoch 0 breaches, and the keeper stops there");
+        assertEq(_kept(), _seq(0, 1), "epoch 0 breaches, and the keeper stops there");
         assertFalse(leash.epochRecord(id, 0).clean);
         assertTrue(leash.mandate(id).breached);
-        assertEq(keeper.settleEnded(leash, key), 0, "no-op once breached");
+        (bool checkpointed, uint256 n) = keeper.keep(leash, key);
+        assertFalse(checkpointed, "nothing to book once breached");
+        assertEq(n, 0, "no-op once breached");
     }
 
-    /// Runs the keeper and returns the epochs it settled, in emission order.
-    function _settledEpochs() internal returns (uint256[] memory epochs) {
+    /// Runs a keeper round and returns the epochs it settled, in emission order.
+    function _kept() internal returns (uint256[] memory epochs) {
         vm.recordLogs();
-        uint256 n = keeper.settleEnded(leash, key);
+        (, uint256 n) = keeper.keep(leash, key);
         Vm.Log[] memory logs = vm.getRecordedLogs();
         epochs = new uint256[](n);
         uint256 j;

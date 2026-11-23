@@ -20,7 +20,11 @@ until cast chain-id --rpc-url $RPC >/dev/null 2>&1; do
   sleep 0.2
 done
 
+# Anvil stamps a burst of blocks with the same second; space them 1s apart so the swapper's trades
+# land in separate seconds and reach Leash's oracle (one observation per second).
+cast rpc anvil_setBlockTimestampInterval 1 --rpc-url $RPC >/dev/null
 forge script script/Local.s.sol:Local --rpc-url $RPC --broadcast --slow
+cast rpc anvil_removeBlockTimestampInterval --rpc-url $RPC >/dev/null
 mkdir -p deployments/abi
 jq .abi out/Leash.sol/Leash.json >deployments/abi/Leash.json
 

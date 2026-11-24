@@ -14,6 +14,7 @@ import {PoolIdLibrary} from "v4-core/types/PoolId.sol";
 import {Currency} from "v4-core/types/Currency.sol";
 import {SwapParams} from "v4-core/types/PoolOperation.sol";
 import {PoolSwapTest} from "v4-core/test/PoolSwapTest.sol";
+import {SqrtPriceMath} from "v4-core/libraries/SqrtPriceMath.sol";
 import {LiquidityAmounts} from "v4-periphery/src/libraries/LiquidityAmounts.sol";
 import {Leash, Terms, Position, Mandate, EpochRecord} from "../../src/Leash.sol";
 
@@ -30,6 +31,7 @@ contract LeashAuditTest is Test, Deployers {
     Leash leash;
     address alice = makeAddr("alice"); // manager
     address eve = makeAddr("eve"); // outsider
+    address arb = makeAddr("arb"); // arbitrageur: trades the price back to 1:1, the market price in these tests
     uint40 auctionEnd;
 
     function setUp() public {
@@ -45,10 +47,11 @@ contract LeashAuditTest is Test, Deployers {
         auctionEnd = uint40(block.timestamp + 1 days);
         leash.createMandate(key, SQRT_PRICE_1_1, _terms(), 100e18, 100e18, Position(-600, 600, 1_000e18));
 
-        address[2] memory who = [alice, eve];
-        for (uint256 i; i < 2; i++) {
-            MockERC20(Currency.unwrap(currency0)).mint(who[i], 1_000e18);
-            MockERC20(Currency.unwrap(currency1)).mint(who[i], 1_000e18);
+        address[3] memory who = [alice, eve, arb];
+        for (uint256 i; i < 3; i++) {
+            uint256 amount = 1_000_000e18;
+            MockERC20(Currency.unwrap(currency0)).mint(who[i], amount);
+            MockERC20(Currency.unwrap(currency1)).mint(who[i], amount);
             vm.startPrank(who[i]);
             _approveAll(who[i]);
             vm.stopPrank();
@@ -127,103 +130,7 @@ contract LeashAuditTest is Test, Deployers {
         vm.roll(block.number + 1);
     }
 
-    // ================================================================ C-1
-
-    /// C-1. The manager sandwiches its own rebalance, many times inside one transaction. The guard compares spot to a
-    /// TWAP that cannot move within a block, so every cycle passes: push spot +100 ticks through a min-liquidity
-    /// position (almost free), re-place all inventory just behind spot, sell back to market into it, shrink again;
-    /// then the mirror image. Each half-cycle buys/sells the treasury's whole side at ~0.5% off market, and the
-    /// position never leaves compliance, so the bond is safe and the epoch settles clean.
-    function test_C1_managerDrainsBySameBlockSandwichLoop() public {
-        vm.skip(true); // rewritten as a regression once the anchor, width, fee floor, same-block and oracle fixes land
-        _win();
-        vm.prank(alice);
-        leash.setFee(key, 0);
-        vm.prank(alice);
-        leash.rebalance(key, -60, 60, 100e18);
-
-        uint256 before = _value(alice);
-        uint256 gasStart = gasleft();
-        uint256 cycles = 25;
-        for (uint256 i; i < cycles; i++) {
-            // Up: spot to +60, all currency1 into [0, 60) (spot on its upper edge: needs no currency0),
-            // sell currency0 back to market into it: the treasury buys currency0 ~0.3% above market.
-            _swapToTick(alice, 60);
-            uint128 l1 = LiquidityAmounts.getLiquidityForAmount1(_sqrt(0), _sqrt(60), _m().idle1) * 99 / 100;
-            vm.prank(alice);
-            leash.rebalance(key, 0, 60, l1);
-            _swapToTick(alice, 0);
-            vm.prank(alice);
-            leash.rebalance(key, -60, 60, 100e18);
-            // Down: spot to -60, all currency0 into [-60, 60) (spot on its lower edge: needs no currency1),
-            // buy currency0 back to market: the treasury sells currency0 below market.
-            _swapToTick(alice, -60);
-            uint128 l0 = LiquidityAmounts.getLiquidityForAmount0(_sqrt(-60), _sqrt(60), _m().idle0) * 99 / 100;
-            vm.prank(alice);
-            leash.rebalance(key, -60, 60, l0);
-            _swapToTick(alice, 0);
-            vm.prank(alice);
-            leash.rebalance(key, -60, 60, 100e18);
-        }
-        emit log_named_uint("gas per full cycle", (gasStart - gasleft()) / cycles);
-        uint256 gain = _value(alice) - before;
-        emit log_named_decimal_uint("manager gain in one tx (tokens at 1:1)", gain, 18);
-        assertEq(leash.twapTick(key), 0, "TWAP never moved");
-
-        // The epoch stays clean: the manager keeps the bond and is paid on top.
-        vm.warp(auctionEnd + 1 days);
-        leash.settle(key, 0);
-        assertTrue(leash.epochRecord(key.toId(), 0).clean, "epoch clean");
-        assertEq(_m().bond, 10e18, "bond intact");
-
-        assertLe(gain, 1e18, "manager extracted treasury inventory");
-    }
-
-    // ================================================================ C-2
-
-    /// C-2. Outside the hook's own range the pool has no liquidity, so the price can be parked at MAX_TICK for free.
-    /// One 12s block there adds 887271*12 to the tick accumulator: the 30-min TWAP jumps to ~5915 (x1.8). The manager
-    /// then moves spot down to that TWAP (still free), so |spot - TWAP| = 0 and the guard passes; re-places the
-    /// whole inventory in [0, ~5940) and sells currency0 down to market into it, buying the stablecoin at up to 1.8x.
-    /// The new range still holds the TWAP as it decays back to 0, so the epoch stays clean.
-    function test_C2_managerDrainsByParkingPriceAtMaxTickForOneBlock() public {
-        vm.skip(true); // rewritten as a regression once the anchor, width, fee floor, same-block and oracle fixes land
-        _win();
-        vm.startPrank(alice);
-        leash.setFee(key, 0);
-        leash.rebalance(key, -60, 60, 100e18); // a minimal position makes the push nearly free
-        vm.stopPrank();
-        uint256 before = _value(alice);
-
-        _swapAs(alice, false, TickMath.MAX_SQRT_PRICE - 1); // through the dust position, then free to MAX_TICK
-        _next(12);
-        int24 t = leash.twapTick(key);
-        emit log_named_int("TWAP after one block at MAX_TICK", t);
-        _swapToTick(alice, t); // writes the observation; free fall to the TWAP
-        int24 hi = (t / 60 + 1) * 60;
-        Mandate memory m = _m();
-        uint128 l = LiquidityAmounts.getLiquidityForAmounts(_sqrt(t), _sqrt(0), _sqrt(hi), m.idle0, m.idle1) * 99 / 100;
-        vm.prank(alice);
-        leash.rebalance(key, 0, hi, l); // passes the guard: spot == TWAP
-        _swapToTick(alice, 1); // sell currency0 into the treasury's bid, back to market (tick 1 stays inside the range)
-
-        uint256 gain = _value(alice) - before;
-        emit log_named_decimal_uint("manager gain (tokens at 1:1)", gain, 18);
-
-        // Keeper every minute for the rest of the epoch: still clean, bond kept.
-        while (block.timestamp + 1 minutes <= auctionEnd + 1 days) {
-            _next(1 minutes);
-            leash.checkpoint(key);
-        }
-        vm.warp(auctionEnd + 1 days);
-        leash.settle(key, 0);
-        assertTrue(leash.epochRecord(key.toId(), 0).clean, "epoch clean");
-        assertEq(_m().bond, 10e18, "bond intact");
-
-        assertLe(gain, 1e18, "manager extracted treasury inventory");
-    }
-
-    // ================================================================ H-1
+    // ================================================================ attack helpers
 
     function _keep(uint256 until) internal {
         while (block.timestamp + 1 minutes <= until) {
@@ -232,39 +139,219 @@ contract LeashAuditTest is Test, Deployers {
         }
     }
 
-    /// One block parked at MAX_TICK and straight back: the TWAP sits out of range for ~30 min.
-    function _spike() internal {
-        _swapAs(eve, false, TickMath.MAX_SQRT_PRICE - 1);
-        _next(12);
-        _swapToTick(eve, 0);
+    /// `who` swaps until the price is exactly at tick `t`, from either side.
+    function _moveTo(address who, int24 t) internal {
+        (uint160 p,,,) = manager.getSlot0(key.toId());
+        uint160 target = _sqrt(t);
+        if (p != target) _swapAs(who, target < p, target);
     }
 
-    /// H-1. Anyone (the treasury above all, since it receives the bond) breaches an honest manager for the cost of
-    /// three round trips through one side of the treasury's own position. Each spike holds the 30-min TWAP at ~5915
-    /// for a full window; the manager can't re-range because spot is back at market, far from the TWAP. A keeper
-    /// checkpointing every minute doesn't help: the TWAP really is out of range. 3 x 30 min > the 72 min allowed.
-    function test_H1_outsiderForcesBreachWithThreeOneBlockSpikes() public {
-        vm.skip(true); // rewritten as a regression once the anchor, width, fee floor, same-block and oracle fixes land
+    /// `t` rounded down (or up) to the tick spacing, 60.
+    function _round(int256 t, bool up) internal pure returns (int24) {
+        int256 f = t - (t % 60);
+        if (t % 60 < 0) f -= 60;
+        return int24(up && f != t ? f + 60 : f);
+    }
+
+    /// The narrowest legal range now: TWAP +- minHalfWidth (200), widened to the tick spacing.
+    function _narrowest() internal view returns (int24 lo, int24 hi) {
+        int256 t = leash.twapTick(key);
+        (lo, hi) = (_round(t - 200, false), _round(t + 200, true));
+    }
+
+    /// The most liquidity the mandate's inventory (idle plus the current position, at spot) can put in [lo, hi).
+    function _maxLiquidity(int24 lo, int24 hi) internal view returns (uint128) {
+        Mandate memory m = _m();
+        (uint160 p,,,) = manager.getSlot0(key.toId());
+        (uint160 l, uint160 h) = (_sqrt(m.tickLower), _sqrt(m.tickUpper));
+        uint256 a0 = m.idle0 + (p < h ? SqrtPriceMath.getAmount0Delta(p > l ? p : l, h, m.liquidity, false) : 0);
+        uint256 a1 = m.idle1 + (p > l ? SqrtPriceMath.getAmount1Delta(l, p < h ? p : h, m.liquidity, false) : 0);
+        return LiquidityAmounts.getLiquidityForAmounts(p, _sqrt(lo), _sqrt(hi), a0, a1) * 999 / 1000;
+    }
+
+    /// Value gained since `start`, at the 1:1 market price, counting pay the hook owes (not the bond).
+    function _pnl(address who, uint256 start) internal view returns (int256) {
+        return int256(_value(who) + leash.owed(who, currency0) + leash.owed(who, currency1)) - int256(start);
+    }
+
+    // ================================================================ C-1
+
+    /// C-1, fixed: each move of the original loop is refused. The fee can't go to 0, the position can't be 60 ticks
+    /// wide, and a rebalance can't follow a push in the same block.
+    function test_C1_managerDrainsBySameBlockSandwichLoop() public {
         _win();
-        uint256 before = _value(eve);
-        for (uint256 i; i < 3; i++) {
-            _keep(block.timestamp + 1 hours);
-            _spike();
-            if (i == 0) {
+        vm.startPrank(alice);
+        vm.expectRevert(Leash.FeeTooLow.selector);
+        leash.setFee(key, 0);
+        leash.setFee(key, 500);
+        vm.expectRevert(Leash.RangeMissesTwap.selector);
+        leash.rebalance(key, -60, 60, 100e18);
+        vm.stopPrank();
+        _moveTo(alice, 60);
+        vm.prank(alice);
+        vm.expectRevert(Leash.SameBlock.selector);
+        leash.rebalance(key, -240, 240, 100e18);
+    }
+
+    /// The strongest sandwich still legal, one cycle per two blocks, fee at the 0.05% floor. Block 1: shrink to
+    /// minLiquidity in the narrowest legal range, push spot to TWAP + 99 (the guard allows 100) through it and the
+    /// anchor. Block 2: re-place the whole inventory in the narrowest legal range at the pushed spot, then sell back
+    /// down to 1:1 into it. With `arbitraged`, an arbitrageur backruns the push in block 1; without, the manager
+    /// owns the block boundary (last in block 1, first in block 2) and nobody trades in between.
+    function _c1(bool arbitraged, uint256 cycles) internal returns (int256 managerPerCycle, int256 arbPerCycle) {
+        _win();
+        vm.prank(alice);
+        leash.setFee(key, 500);
+        (uint256 alice0, uint256 arb0) = (_value(alice), _value(arb));
+        for (uint256 i; i < cycles; i++) {
+            (int24 lo, int24 hi) = _narrowest();
+            vm.prank(alice);
+            leash.rebalance(key, lo, hi, 100e18);
+            _moveTo(alice, leash.twapTick(key) + 99);
+            if (arbitraged) _moveTo(arb, 0);
+            _next(12);
+            (lo, hi) = _narrowest();
+            uint128 l = _maxLiquidity(lo, hi);
+            vm.prank(alice);
+            try leash.rebalance(key, lo, hi, l) {}
+            catch {
+                // Growing the position off the TWAP is refused: the best legal move is to re-range at the same size.
                 vm.prank(alice);
-                vm.expectRevert(Leash.SpotOffTwap.selector);
-                leash.rebalance(key, -600, 600, 1_000e18); // the manager can't defend
+                leash.rebalance(key, lo, hi, 100e18);
             }
+            _moveTo(alice, 0);
+            _next(12);
         }
-        _keep(auctionEnd + 1 days);
-        uint256 cost = before - _value(eve);
-        emit log_named_decimal_uint("attacker cost (tokens at 1:1)", cost, 18);
         vm.warp(auctionEnd + 1 days);
         leash.settle(key, 0);
+        assertTrue(leash.epochRecord(key.toId(), 0).clean, "the sandwiching manager stays clean");
+        managerPerCycle = _pnl(alice, alice0) / int256(cycles);
+        arbPerCycle = _pnl(arb, arb0) / int256(cycles);
+    }
+
+    function test_C1_strongestLegalSandwich_arbitraged() public {
+        (int256 m, int256 a) = _c1(true, 20);
+        emit log_named_decimal_int("manager P&L per cycle (tokens, incl. pay)", m, 18);
+        emit log_named_decimal_int("arbitrageur P&L per cycle", a, 18);
+        assertLe(m, 0, "the manager loses every attempt");
+    }
+
+    function test_C1_strongestLegalSandwich_managerOwnsBlockBoundary() public {
+        (int256 m,) = _c1(false, 20);
+        emit log_named_decimal_int("manager P&L per cycle (tokens, incl. pay)", m, 18);
+        assertLe(m, 0, "no profit even when nobody trades between the push and the re-placement");
+    }
+
+    // ================================================================ C-2
+
+    /// C-2, fixed: parking the price at MAX_TICK now means buying out the full-range anchor; the swap can't even be
+    /// expressed (the amount overflows int128). And whatever price is held for a block moves the TWAP <= 4 ticks.
+    function test_C2_managerDrainsByParkingPriceAtMaxTickForOneBlock() public {
+        _win();
+        vm.prank(alice);
+        vm.expectRevert();
+        swapRouter.swap(
+            key,
+            SwapParams(false, 1e30, TickMath.MAX_SQRT_PRICE - 1),
+            PoolSwapTest.TestSettings(false, false),
+            ZERO_BYTES
+        );
+
+        _moveTo(alice, 100_000); // as far as ~3,000 tokens through the anchor buys
+        _next(12);
+        assertLe(leash.twapTick(key), 4, "one block anywhere moves the TWAP <= 4 ticks");
+        int24 t = leash.twapTick(key);
+        vm.prank(alice);
+        vm.expectRevert(Leash.SpotOffTwap.selector); // spot is far from a TWAP that hasn't moved
+        leash.rebalance(key, _round(t - 200, false), _round(100_000 + 240, true), 100e18);
+    }
+
+    /// The strongest legal C-2, against an arbitrageur who restores 1:1 first thing every block. The manager drags
+    /// the TWAP by ending every block with spot at +X for one window (shrunk to minLiquidity in a range that keeps
+    /// it compliant on the way), then, first in a block, re-places the whole inventory around the dragged TWAP
+    /// (spot == TWAP, so even growth is allowed) and sells down to 1:1 into it. Returns its P&L, split into the
+    /// drag's cost and the extraction.
+    function _c2(int24 x) internal returns (int256 dragCost, int256 extracted) {
+        _win();
+        vm.startPrank(alice);
+        leash.setFee(key, 500);
+        leash.rebalance(key, -240, _round(int256(x) + 240, true), 100e18);
+        vm.stopPrank();
+        _next(12);
+        uint256 alice0 = _value(alice);
+        for (uint256 i; i < 151; i++) {
+            _moveTo(arb, 0);
+            _moveTo(alice, x);
+            _next(12);
+        }
+        dragCost = -_pnl(alice, alice0);
+        emit log_named_int("TWAP after the drag", leash.twapTick(key));
+        alice0 = _value(alice);
+        (int24 lo, int24 hi) = _narrowest();
+        uint128 l = _maxLiquidity(lo, hi);
+        vm.prank(alice);
+        leash.rebalance(key, lo, hi, l);
+        _moveTo(alice, 0);
+        extracted = _pnl(alice, alice0);
+    }
+
+    function test_C2_strongestLegalDragThenExtract() public {
+        int24[3] memory xs = [int24(300), 600, 1200];
+        for (uint256 i; i < xs.length; i++) {
+            uint256 snap = vm.snapshotState();
+            (int256 cost, int256 gain) = _c2(xs[i]);
+            emit log_named_int("X (ticks)", xs[i]);
+            emit log_named_decimal_int("  cost to drag the TWAP by X for one window", cost, 18);
+            emit log_named_decimal_int("  extracted by re-placing around it", gain, 18);
+            assertGt(cost, gain, "dragging costs more than it extracts");
+            vm.revertToState(snap);
+        }
+    }
+
+    // ================================================================ H-1
+
+    /// H-1, fixed: the original one-block spikes can't reach MAX_TICK through the anchor, and a spike as far as
+    /// ~3,000 tokens buys moves the TWAP <= 4 ticks, so three of them do nothing.
+    function test_H1_outsiderForcesBreachWithThreeOneBlockSpikes() public {
+        _win();
+        for (uint256 i; i < 3; i++) {
+            _keep(block.timestamp + 1 hours);
+            _moveTo(eve, 100_000);
+            _next(12);
+            _moveTo(eve, 0);
+            assertLe(leash.twapTick(key), 4);
+        }
+        _keep(auctionEnd + 1 days);
+        vm.warp(auctionEnd + 1 days);
+        leash.settle(key, 0);
+        assertTrue(leash.epochRecord(key.toId(), 0).clean, "an always-in-range manager was breached");
+    }
+
+    /// The strongest legal H-1, against an arbitrageur who restores 1:1 first thing every block: eve ends every block
+    /// with spot at the honest manager's upper edge (600), for the last 110 minutes of the epoch (a window to drag
+    /// the TWAP out, then 80 minutes out of range > the 72 allowed). Every block she pays the round trip through the
+    /// managed position and the anchor to the arbitrageur. Keeper every minute.
+    function test_H1_strongestLegalBreachCostsFarMoreThanTheBond() public {
+        _win();
+        _keep(auctionEnd + 1 days - 110 minutes);
+        uint256 eve0 = _value(eve);
+        uint256 blocks;
+        while (block.timestamp + 12 <= auctionEnd + 1 days) {
+            _moveTo(arb, 0);
+            _moveTo(eve, 600);
+            _next(12);
+            if (++blocks % 5 == 0) leash.checkpoint(key);
+        }
+        vm.warp(auctionEnd + 1 days);
+        leash.settle(key, 0);
+        int256 cost = -_pnl(eve, eve0);
         EpochRecord memory e = leash.epochRecord(key.toId(), 0);
+        emit log_named_uint("blocks held", blocks);
         emit log_named_uint("outSecs", e.outSecs);
-        emit log_named_decimal_uint("bond to the treasury", leash.owed(address(this), currency1), 18);
-        assertTrue(e.clean, "an always-in-range manager was breached");
+        emit log_named_decimal_int("attacker cost (tokens at 1:1)", cost, 18);
+        emit log_named_decimal_uint("bond", 10e18, 18);
+        assertFalse(e.clean, "held long enough, the TWAP really is out of range");
+        assertGt(cost, 10 * 10e18, "forcing the breach costs > 10x the bond");
     }
 
     // ================================================================ M-1
@@ -317,7 +404,7 @@ contract LeashAuditTest is Test, Deployers {
         leash.settle(key, 3);
         leash.claim(currency1);
         vm.stopPrank();
-        assertEq(_bal(currency1, alice), 1_000e18, "clean manager has its bond back");
+        assertEq(_bal(currency1, alice), 1_000_000e18, "clean manager has its bond back");
         assertEq(_m().bond, 0);
 
         // The treasury's later close owes the manager nothing more.

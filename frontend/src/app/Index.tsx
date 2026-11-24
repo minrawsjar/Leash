@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { zeroAddress } from 'viem';
 import {
-  ago, blockTime, chainNow, describe, dur, endOf, fmt, fmtNum, leashLogs, mandatesFrom, short, snapshot, stableOf,
+  ago, blockTime, chainNow, client, describe, dur, endOf, fmt, fmtNum, leashLogs, mandatesFrom, short, snapshot, stableOf,
   type LeashLog, type Snapshot,
 } from './chain.ts';
 import { Dot, TxLink, useApp, useClock, usePoll } from './ui.tsx';
@@ -69,7 +69,7 @@ export function Index({ refresh }: { refresh: number }) {
     bonds.set(stable.symbol, (bonds.get(stable.symbol) ?? 0) + Number(s.m.bond) / 10 ** stable.decimals);
   }
   const managers = new Set(snaps.filter((s) => s.m.manager !== zeroAddress).map((s) => s.m.manager.toLowerCase())).size;
-  const head = snaps[0];
+  const head = usePoll(() => client(net).getBlockNumber(), 6_000, [net.id]).data;
 
   return (
     <>
@@ -94,7 +94,7 @@ export function Index({ refresh }: { refresh: number }) {
             <div className="stat violet"><span className="eyebrow">Bonds at stake</span><strong>{bonds.size ? [...bonds].map(([k, v]) => `${fmtNum(v)} ${k}`).join(' + ') : '0'}</strong></div>
             <a className="stat" href="#/managers"><span className="eyebrow">Managers</span><strong>{managers} <small>hired · leaderboard →</small></strong></a>
             <div className="stat"><span className="eyebrow">Hook events</span><strong>{data.logs.length}</strong></div>
-            <div className="stat"><span className="eyebrow">Latest block</span><strong className="mono">{head ? String(head.block) : '–'}</strong></div>
+            <div className="stat"><span className="eyebrow">Latest block</span><strong className="mono">{head !== undefined ? String(head) : '–'}</strong></div>
           </div>
 
           <section className="x-cta" aria-labelledby="cta">
@@ -108,15 +108,11 @@ export function Index({ refresh }: { refresh: number }) {
             </div>
           </section>
 
-          {snaps.length === 0 ? (
-            <div className="empty card">
-              <p>No mandates on {net.name} yet.</p>
-              <a className="btn primary" href="#/create">Post the first mandate</a>
-            </div>
-          ) : (
+          {(
             <div className="x-grid">
               <section className="card x-panel" aria-labelledby="lm">
                 <div className="card-head"><h2 id="lm">Latest mandates</h2></div>
+                {snaps.length === 0 && <p className="x-none">No mandates on this hook yet. <a href="#/create">Post the first one →</a></p>}
                 <ul className="x-list">
                   {snaps.slice(0, 6).map((s) => {
                     const c = created.get(s.id.toLowerCase());
@@ -143,6 +139,7 @@ export function Index({ refresh }: { refresh: number }) {
 
               <section className="card x-panel" aria-labelledby="la">
                 <div className="card-head"><h2 id="la">Latest activity</h2></div>
+                {recent.length === 0 && <p className="x-none">No hook events yet. Posting, bidding, rebalancing, settling and closing all show up here as they happen.</p>}
                 <ul className="x-list">
                   {recent.map((l) => <Activity key={`${l.transactionHash}-${l.logIndex}`} l={l} s={byId.get(String(l.args.id).toLowerCase())} t={times.data?.get(String(l.blockNumber))} />)}
                 </ul>
@@ -150,7 +147,7 @@ export function Index({ refresh }: { refresh: number }) {
             </div>
           )}
 
-          {snaps.length > 0 && (
+          {(
             <section id="all" className="x-all">
               <div className="x-bar">
                 <h2>All mandates</h2>
@@ -163,7 +160,7 @@ export function Index({ refresh }: { refresh: number }) {
                   {who && <button type="button" className="x-chip on" onClick={() => setWho('')}>{short(who)} ✕</button>}
                 </div>
               </div>
-              {shown.length ? <ul className="rows" aria-label="Mandates">{shown.map((s) => <Row key={s.id} s={s} />)}</ul> : <p className="empty">Nothing matches this filter.</p>}
+              {shown.length ? <ul className="rows" aria-label="Mandates">{shown.map((s) => <Row key={s.id} s={s} />)}</ul> : <p className="empty">{snaps.length ? 'Nothing matches this filter.' : 'Every mandate posted to this hook will be listed here.'}</p>}
             </section>
           )}
         </>

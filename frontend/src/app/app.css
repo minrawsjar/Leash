@@ -135,6 +135,8 @@
   .card.x-panel { padding: 0; gap: 0; overflow: hidden; }
   .x-panel .card-head { padding: 18px 20px; border-bottom: 1px solid var(--line); }
   .x-list { margin: 0; padding: 0; list-style: none; }
+  .x-none { margin: 0; padding: 28px 20px; color: var(--muted); font-size: 13.5px; line-height: 1.55; }
+  .x-none a { color: var(--soft); }
   .x-list li { display: grid; grid-template-columns: 40px minmax(0, 1fr) auto; align-items: center; gap: 14px; padding: 14px 20px; border-bottom: 1px solid var(--line); }
   .x-list li:last-child { border-bottom: 0; }
   .x-ico { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 12px; background: var(--raised); color: var(--muted); font: 700 14px var(--display); }

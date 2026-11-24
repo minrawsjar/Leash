@@ -34,6 +34,7 @@ struct Terms {
     uint16 managerFeeBps; // manager's share of a clean epoch's LP fees
     uint16 startStableBps; // pace glide path: max stablecoin share of inventory value at epoch 0 start...
     uint16 endStableBps; // ...and at mandate end, linear in between
+    uint24 minFee; // fee floor in pips, so every round trip through the pool costs something
 }
 
 struct Position {
@@ -117,6 +118,7 @@ contract Leash is BaseHook, IUnlockCallback {
     error NotTreasury();
     error NotEnded();
     error FeeTooHigh();
+    error FeeTooLow();
     error TooShallow();
     error RangeMissesTwap();
     error SpotOffTwap();
@@ -228,8 +230,9 @@ contract Leash is BaseHook, IUnlockCallback {
         // The auction outlasts one TWAP window, so the oracle holds a full window before the manager can act.
         if (
             t.auctionEnd < block.timestamp + t.twapWindow || t.twapWindow == 0 || t.epochLength == 0 || t.epochs == 0
-                || t.epochs > MAX_EPOCHS || t.maxFee > LPFeeLibrary.MAX_LP_FEE || t.minLiquidity == 0
-                || t.uptimeBps > BPS || t.managerFeeBps > BPS || t.startStableBps > BPS || t.endStableBps > BPS
+                || t.epochs > MAX_EPOCHS || t.maxFee > LPFeeLibrary.MAX_LP_FEE || t.minFee > t.maxFee
+                || t.minLiquidity == 0 || t.uptimeBps > BPS || t.managerFeeBps > BPS || t.startStableBps > BPS
+                || t.endStableBps > BPS
         ) revert BadTerms();
         id = key.toId();
         int24 tick = poolManager.initialize(key, sqrtPriceX96); // reverts if the pool already exists
@@ -310,6 +313,7 @@ contract Leash is BaseHook, IUnlockCallback {
     function setFee(PoolKey calldata key, uint24 fee) external {
         Mandate storage m = _active(key);
         if (fee > m.terms.maxFee) revert FeeTooHigh();
+        if (fee < m.terms.minFee) revert FeeTooLow();
         _checkpoint(key, m);
         poolManager.updateDynamicLPFee(key, fee);
         emit FeeSet(key.toId(), fee);

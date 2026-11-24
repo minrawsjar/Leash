@@ -64,7 +64,8 @@ contract LeashTest is Test, Deployers {
             uptimeBps: 9500,
             managerFeeBps: 3000,
             startStableBps: 10_000,
-            endStableBps: 10_000
+            endStableBps: 10_000,
+            minFee: 500
         });
     }
 
@@ -139,6 +140,10 @@ contract LeashTest is Test, Deployers {
         leash.createMandate(k, SQRT_PRICE_1_1, _terms(), 100e18, 100e18, Position(60, 600, 1_000e18));
         Terms memory t = _terms();
         t.auctionEnd = uint40(block.timestamp + 1799);
+        vm.expectRevert(Leash.BadTerms.selector);
+        leash.createMandate(k, SQRT_PRICE_1_1, t, 100e18, 100e18, _initial());
+        t = _terms();
+        t.minFee = t.maxFee + 1;
         vm.expectRevert(Leash.BadTerms.selector);
         leash.createMandate(k, SQRT_PRICE_1_1, t, 100e18, 100e18, _initial());
     }
@@ -282,11 +287,13 @@ contract LeashTest is Test, Deployers {
         leash.rebalance(key, -1200, 60, 1_800e18);
     }
 
-    function test_setFee_capped() public {
+    function test_setFee_betweenFloorAndCap() public {
         _win();
         vm.startPrank(alice);
         vm.expectRevert(Leash.FeeTooHigh.selector);
         leash.setFee(key, 10_001);
+        vm.expectRevert(Leash.FeeTooLow.selector);
+        leash.setFee(key, 499);
         leash.setFee(key, 500);
         vm.stopPrank();
         (,,, uint24 lpFee) = manager.getSlot0(key.toId());

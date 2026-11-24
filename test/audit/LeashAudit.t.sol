@@ -77,7 +77,8 @@ contract LeashAuditTest is Test, Deployers {
             uptimeBps: 9500,
             managerFeeBps: 3000,
             startStableBps: 10_000,
-            endStableBps: 10_000
+            endStableBps: 10_000,
+            minFee: 500
         });
     }
 
@@ -394,7 +395,7 @@ contract LeashAuditTest is Test, Deployers {
     function test_safe_oracleWraparoundMatchesReference() public {
         _win();
         vm.prank(alice);
-        leash.setFee(key, 0);
+        leash.setFee(key, 500); // the floor
         obsTime.push(uint32(block.timestamp - 1 days)); // creation observation
         obsTickAfter.push(0);
         // _win's checkpoint wrote no observation; the first swap below writes one at its block.

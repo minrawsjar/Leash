@@ -59,7 +59,8 @@ contract Handler is Test {
             uptimeBps: 9000,
             managerFeeBps: uint16(FEE_BPS),
             startStableBps: 6000,
-            endStableBps: 9000
+            endStableBps: 9000,
+            minFee: 500
         });
         leash.createMandate(key, TickMath.getSqrtPriceAtTick(0), t, 1_000e18, 1_000e18, Position(-600, 600, 2_000e18));
     }

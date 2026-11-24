@@ -77,7 +77,11 @@ contract Local is DeployLeash {
         (MockERC20 t0, MockERC20 t1) = usdcIs0 ? (usdc, tkn) : (tkn, usdc);
         (uint256 a0, uint256 a1) = usdcIs0 ? (USDC_DEPOSIT, TKN_DEPOSIT) : (TKN_DEPOSIT, USDC_DEPOSIT);
         key = PoolKey(
-            Currency.wrap(address(t0)), Currency.wrap(address(t1)), LPFeeLibrary.DYNAMIC_FEE_FLAG, 60, IHooks(address(leash))
+            Currency.wrap(address(t0)),
+            Currency.wrap(address(t1)),
+            LPFeeLibrary.DYNAMIC_FEE_FLAG,
+            60,
+            IHooks(address(leash))
         );
         id = key.toId();
         openSqrtPriceX96 = uint160(FixedPointMathLib.sqrt(FullMath.mulDiv(a1, 1 << 192, a0)));
@@ -119,7 +123,8 @@ contract Local is DeployLeash {
             uptimeBps: 9500,
             managerFeeBps: 3000,
             startStableBps: 6000, // inventory opens at 50% stablecoin by value, so it starts on pace
-            endStableBps: 8000
+            endStableBps: 8000,
+            minFee: 500 // 0.05%: every round trip through the pool costs at least this
         });
     }
 
@@ -138,7 +143,9 @@ contract Local is DeployLeash {
     function swap(MockERC20 tokenIn, uint256 amount) internal {
         bool zeroForOne = Currency.unwrap(key.currency0) == address(tokenIn);
         uint160 limit = zeroForOne ? TickMath.MIN_SQRT_PRICE + 1 : TickMath.MAX_SQRT_PRICE - 1;
-        swapRouter.swap(key, SwapParams(zeroForOne, -int256(amount), limit), PoolSwapTest.TestSettings(false, false), "");
+        swapRouter.swap(
+            key, SwapParams(zeroForOne, -int256(amount), limit), PoolSwapTest.TestSettings(false, false), ""
+        );
     }
 
     function bid(uint32 who, uint256 amount) internal {

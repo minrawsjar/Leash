@@ -8,6 +8,8 @@ import {Hooks} from "v4-core/libraries/Hooks.sol";
 import {LPFeeLibrary} from "v4-core/libraries/LPFeeLibrary.sol";
 import {StateLibrary} from "v4-core/libraries/StateLibrary.sol";
 import {TickMath} from "v4-core/libraries/TickMath.sol";
+import {SqrtPriceMath} from "v4-core/libraries/SqrtPriceMath.sol";
+import {LiquidityAmounts} from "v4-periphery/src/libraries/LiquidityAmounts.sol";
 import {IHooks} from "v4-core/interfaces/IHooks.sol";
 import {PoolKey} from "v4-core/types/PoolKey.sol";
 import {PoolIdLibrary} from "v4-core/types/PoolId.sol";
@@ -65,7 +67,8 @@ contract LeashTest is Test, Deployers {
             managerFeeBps: 3000,
             startStableBps: 10_000,
             endStableBps: 10_000,
-            minFee: 500
+            minFee: 500,
+            minHalfWidth: 200
         });
     }
 
@@ -138,12 +141,18 @@ contract LeashTest is Test, Deployers {
         leash.createMandate(k, SQRT_PRICE_1_1, _terms(), 100e18, 100e18, Position(-600, 600, 99e18));
         vm.expectRevert(Leash.RangeMissesTwap.selector);
         leash.createMandate(k, SQRT_PRICE_1_1, _terms(), 100e18, 100e18, Position(60, 600, 1_000e18));
+        vm.expectRevert(Leash.RangeMissesTwap.selector); // narrower than minHalfWidth (200) on each side
+        leash.createMandate(k, SQRT_PRICE_1_1, _terms(), 100e18, 100e18, Position(-120, 120, 1_000e18));
         Terms memory t = _terms();
         t.auctionEnd = uint40(block.timestamp + 1799);
         vm.expectRevert(Leash.BadTerms.selector);
         leash.createMandate(k, SQRT_PRICE_1_1, t, 100e18, 100e18, _initial());
         t = _terms();
         t.minFee = t.maxFee + 1;
+        vm.expectRevert(Leash.BadTerms.selector);
+        leash.createMandate(k, SQRT_PRICE_1_1, t, 100e18, 100e18, _initial());
+        t = _terms();
+        t.minHalfWidth = t.maxTickDeviation;
         vm.expectRevert(Leash.BadTerms.selector);
         leash.createMandate(k, SQRT_PRICE_1_1, t, 100e18, 100e18, _initial());
     }
@@ -257,6 +266,8 @@ contract LeashTest is Test, Deployers {
         leash.rebalance(key, 60, 600, 1_000e18);
         vm.expectRevert(Leash.RangeMissesTwap.selector);
         leash.rebalance(key, -600, 0, 1_000e18); // upper tick is exclusive
+        vm.expectRevert(Leash.RangeMissesTwap.selector);
+        leash.rebalance(key, -180, 1200, 1_000e18); // lower edge within minHalfWidth of the TWAP
         leash.rebalance(key, -1200, 1200, 100e18);
         vm.stopPrank();
     }
@@ -278,13 +289,20 @@ contract LeashTest is Test, Deployers {
         _assertLedger();
     }
 
-    /// The hook holds 110 currency1 (100 inventory + 10 bond). The range needs ~105 currency1:
-    /// it must fail on the ledger even though the hook's balance could pay.
+    /// The new range needs 5 currency1 more than the mandate's inventory. The hook also holds the 10 currency1
+    /// bond, so its balance could pay: it must fail on the ledger.
     function test_rebalance_cannotSpendTheBond() public {
         _win();
+        Mandate memory m = _m();
+        uint256 have1 = m.idle1
+            + SqrtPriceMath.getAmount1Delta(
+                TickMath.getSqrtPriceAtTick(m.tickLower), SQRT_PRICE_1_1, m.liquidity, false
+            );
+        uint128 l =
+            LiquidityAmounts.getLiquidityForAmount1(TickMath.getSqrtPriceAtTick(-1200), SQRT_PRICE_1_1, have1 + 5e18);
         vm.prank(alice);
         vm.expectRevert(stdError.arithmeticError);
-        leash.rebalance(key, -1200, 60, 1_800e18);
+        leash.rebalance(key, -1200, 240, l);
     }
 
     function test_setFee_betweenFloorAndCap() public {

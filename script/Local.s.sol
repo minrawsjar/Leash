@@ -124,7 +124,8 @@ contract Local is DeployLeash {
             managerFeeBps: 3000,
             startStableBps: 6000, // inventory opens at 50% stablecoin by value, so it starts on pace
             endStableBps: 8000,
-            minFee: 500 // 0.05%: every round trip through the pool costs at least this
+            minFee: 500, // 0.05%: every round trip through the pool costs at least this
+            minHalfWidth: 200 // >= 2x maxTickDeviation: a pushed spot can reach at most half way to the range's edge
         });
     }
 

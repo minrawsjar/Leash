@@ -35,6 +35,7 @@ struct Terms {
     uint16 startStableBps; // pace glide path: max stablecoin share of inventory value at epoch 0 start...
     uint16 endStableBps; // ...and at mandate end, linear in between
     uint24 minFee; // fee floor in pips, so every round trip through the pool costs something
+    uint24 minHalfWidth; // the managed range always covers TWAP +- this many ticks; must exceed maxTickDeviation
 }
 
 struct Position {
@@ -232,7 +233,7 @@ contract Leash is BaseHook, IUnlockCallback {
             t.auctionEnd < block.timestamp + t.twapWindow || t.twapWindow == 0 || t.epochLength == 0 || t.epochs == 0
                 || t.epochs > MAX_EPOCHS || t.maxFee > LPFeeLibrary.MAX_LP_FEE || t.minFee > t.maxFee
                 || t.minLiquidity == 0 || t.uptimeBps > BPS || t.managerFeeBps > BPS || t.startStableBps > BPS
-                || t.endStableBps > BPS
+                || t.endStableBps > BPS || t.maxTickDeviation >= t.minHalfWidth
         ) revert BadTerms();
         id = key.toId();
         int24 tick = poolManager.initialize(key, sqrtPriceX96); // reverts if the pool already exists
@@ -251,7 +252,7 @@ contract Leash is BaseHook, IUnlockCallback {
         m.terms = t;
         _pull(key.currency0, msg.sender, amount0);
         _pull(key.currency1, msg.sender, amount1);
-        _place(key, m, tick, initial.tickLower, initial.tickUpper, initial.liquidity);
+        _place(key, m, tick, tick, initial.tickLower, initial.tickUpper, initial.liquidity);
         emit MandateCreated(id, msg.sender, key, amount0, amount1);
     }
 
@@ -303,7 +304,7 @@ contract Leash is BaseHook, IUnlockCallback {
         if ((gap < 0 ? -gap : gap) > int256(uint256(m.terms.maxTickDeviation))) revert SpotOffTwap();
         _sweep(key, m);
         _checkpoint(key, m);
-        (uint256 f0, uint256 f1) = _place(key, m, twap, tickLower, tickUpper, liquidity);
+        (uint256 f0, uint256 f1) = _place(key, m, twap, spot, tickLower, tickUpper, liquidity);
         EpochRecord storage r = _epochs[id][_epochAt(m)];
         (r.fees0, r.fees1) = (r.fees0 + uint128(f0), r.fees1 + uint128(f1));
         m.lastOk = _ok(key, m); // the next interval starts from the fixed position
@@ -513,13 +514,16 @@ contract Leash is BaseHook, IUnlockCallback {
 
     // ---------------------------------------------------------------- liquidity
 
-    /// Every position must hold at least the depth floor and straddle the TWAP.
-    function _place(PoolKey calldata key, Mandate storage m, int24 twap, int24 lo, int24 hi, uint128 liq)
+    /// Every managed position holds at least the depth floor, covers TWAP +- minHalfWidth and has spot strictly
+    /// inside. The width caps how much inventory can be concentrated in the band between a pushed spot and the
+    /// TWAP (at most maxTickDeviation, less than half the width), so a push can't sell the whole side off-price.
+    function _place(PoolKey calldata key, Mandate storage m, int24 twap, int24 spot, int24 lo, int24 hi, uint128 liq)
         internal
         returns (uint256, uint256)
     {
         if (liq < m.terms.minLiquidity) revert TooShallow();
-        if (twap < lo || twap >= hi) revert RangeMissesTwap();
+        int256 w = int256(uint256(m.terms.minHalfWidth));
+        if (lo > twap - w || hi < twap + w || spot <= lo || spot >= hi) revert RangeMissesTwap();
         return _move(key, m, lo, hi, liq);
     }
 

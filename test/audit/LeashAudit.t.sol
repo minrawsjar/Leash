@@ -78,7 +78,8 @@ contract LeashAuditTest is Test, Deployers {
             managerFeeBps: 3000,
             startStableBps: 10_000,
             endStableBps: 10_000,
-            minFee: 500
+            minFee: 500,
+            minHalfWidth: 200
         });
     }
 

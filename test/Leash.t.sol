@@ -24,6 +24,8 @@ contract LeashTest is Test, Deployers {
 
     uint160 constant FLAGS =
         uint160(Hooks.BEFORE_INITIALIZE_FLAG | Hooks.BEFORE_ADD_LIQUIDITY_FLAG | Hooks.BEFORE_SWAP_FLAG);
+    /// LP fees of a 10-token swap at the 1% fee, managed position's share: L 1000 next to the anchor's L 20.
+    uint256 constant MANAGED_FEE = 0.1e18 * uint256(1_000) / 1_020;
 
     Leash leash;
     address alice = makeAddr("alice");
@@ -68,7 +70,8 @@ contract LeashTest is Test, Deployers {
             startStableBps: 10_000,
             endStableBps: 10_000,
             minFee: 500,
-            minHalfWidth: 200
+            minHalfWidth: 200,
+            anchorLiquidity: 20e18 // full range, ~20 of each token at 1:1: 20% of the inventory's value
         });
     }
 
@@ -129,7 +132,7 @@ contract LeashTest is Test, Deployers {
         assertEq(lpFee, 10_000, "starts at the fee cap");
         Mandate memory m = _m();
         assertEq(m.treasury, address(this));
-        assertEq(manager.getLiquidity(key.toId()), 1_000e18, "pool is never empty");
+        assertEq(manager.getLiquidity(key.toId()), 1_000e18 + 20e18, "never empty: managed position + anchor");
         assertLt(m.idle0, 100e18, "inventory went into the position");
         assertEq(_bal(currency0, address(leash)), m.idle0);
         assertEq(_bal(currency1, address(leash)), m.idle1);
@@ -155,6 +158,39 @@ contract LeashTest is Test, Deployers {
         t.minHalfWidth = t.maxTickDeviation;
         vm.expectRevert(Leash.BadTerms.selector);
         leash.createMandate(k, SQRT_PRICE_1_1, t, 100e18, 100e18, _initial());
+    }
+
+    function _anchorLiquidity() internal view returns (uint128 liq) {
+        (liq,,) = manager.getPositionInfo(
+            key.toId(), address(leash), TickMath.minUsableTick(60), TickMath.maxUsableTick(60), bytes32(uint256(1))
+        );
+    }
+
+    /// The anchor spans the full range, the manager can't move it, and its fees go to the treasury at close.
+    function test_anchor_fullRangeUntouchedByRebalancesRemovedAtClose() public {
+        assertEq(_anchorLiquidity(), 20e18);
+        _win();
+        vm.prank(alice);
+        leash.rebalance(key, -1200, 1200, 1_000e18);
+        swap(key, true, -10e18, ZERO_BYTES);
+        _swapTo(false, 1e30, 50_000); // far outside the managed range: only the anchor is there
+        assertEq(manager.getLiquidity(key.toId()), 20e18, "liquidity at every price");
+        _swapTo(true, 1e30, 0);
+        assertEq(_anchorLiquidity(), 20e18, "rebalances and swaps never touch it");
+
+        vm.warp(auctionEnd + 3 days);
+        leash.close(key);
+        assertEq(_anchorLiquidity(), 0, "close removes it");
+        _assertLedger();
+        // Alice's pay is 30% of the managed position's fees only; the anchor's went to the treasury.
+        uint256 managedFees0 = leash.epochRecord(key.toId(), 0).fees0;
+        assertEq(leash.owed(alice, currency0), managedFees0 * 3000 / 10_000);
+        vm.startPrank(alice);
+        leash.claim(currency0);
+        leash.claim(currency1);
+        vm.stopPrank();
+        assertEq(_bal(currency0, address(leash)), 0);
+        assertEq(_bal(currency1, address(leash)), 0);
     }
 
     function test_outsiderCannotAddLiquidity() public {
@@ -275,8 +311,8 @@ contract LeashTest is Test, Deployers {
     function test_rebalance_swap_ledgerMatchesBalances() public {
         _win();
         vm.prank(alice);
-        leash.rebalance(key, -1200, 1200, 1_500e18);
-        assertEq(manager.getLiquidity(key.toId()), 1_500e18, "hook liquidity is live");
+        leash.rebalance(key, -1200, 1200, 1_200e18);
+        assertEq(manager.getLiquidity(key.toId()), 1_200e18 + 20e18, "hook liquidity is live");
 
         swap(key, true, -1e18, ZERO_BYTES); // someone buys currency1 with currency0
         vm.warp(block.timestamp + 1 hours);
@@ -465,8 +501,8 @@ contract LeashTest is Test, Deployers {
         EpochRecord memory e = leash.epochRecord(key.toId(), 0);
         assertTrue(e.settled && e.clean);
         assertEq(e.outSecs, 0);
-        assertApproxEqAbs(e.fees0, 0.1e18, 2);
-        assertApproxEqAbs(e.fees1, 0.1e18, 2);
+        assertApproxEqAbs(e.fees0, MANAGED_FEE, 2);
+        assertApproxEqAbs(e.fees1, MANAGED_FEE, 2);
         assertEq(leash.owed(alice, currency0), uint256(e.fees0) * 3000 / 10_000, "30% of fees0");
         assertEq(leash.owed(alice, currency1), uint256(e.fees1) * 3000 / 10_000, "30% of fees1");
         (uint32 clean, uint32 breached) = leash.records(alice);
@@ -544,7 +580,7 @@ contract LeashTest is Test, Deployers {
         vm.warp(auctionEnd);
         uint256 idle0 = _m().idle0;
         leash.checkpoint(key);
-        assertApproxEqAbs(_m().idle0 - idle0, 0.1e18, 2, "swept into the treasury's inventory");
+        assertApproxEqAbs(_m().idle0 - idle0, MANAGED_FEE, 2, "swept into the treasury's inventory");
         assertTrue(_m().swept);
 
         swap(key, false, -10e18, ZERO_BYTES); // 0.1 currency1 of fees, on alice's watch
@@ -552,7 +588,7 @@ contract LeashTest is Test, Deployers {
         leash.settle(key, 0);
         EpochRecord memory e = leash.epochRecord(key.toId(), 0);
         assertEq(e.fees0, 0);
-        assertApproxEqAbs(e.fees1, 0.1e18, 2);
+        assertApproxEqAbs(e.fees1, MANAGED_FEE, 2);
         assertEq(leash.owed(alice, currency0), 0);
         assertEq(leash.owed(alice, currency1), uint256(e.fees1) * 3000 / 10_000);
         _assertLedger();
@@ -663,7 +699,7 @@ contract LeashTest is Test, Deployers {
         leash.close(key);
 
         EpochRecord memory e0 = leash.epochRecord(key.toId(), 0);
-        assertApproxEqAbs(e0.fees0, 0.1e18, 2);
+        assertApproxEqAbs(e0.fees0, MANAGED_FEE, 2);
         assertEq(leash.owed(alice, currency0), uint256(e0.fees0) * 3000 / 10_000);
         assertEq(leash.owed(alice, currency1), 10e18, "bond back");
         (uint32 clean,) = leash.records(alice);

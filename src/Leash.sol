@@ -36,6 +36,7 @@ struct Terms {
     uint16 endStableBps; // ...and at mandate end, linear in between
     uint24 minFee; // fee floor in pips, so every round trip through the pool costs something
     uint24 minHalfWidth; // the managed range always covers TWAP +- this many ticks; must exceed maxTickDeviation
+    uint128 anchorLiquidity; // permanent full-range position the manager can't touch: liquidity at every price
 }
 
 struct Position {
@@ -89,6 +90,7 @@ struct Obs {
 // a 30-min window, and the TWAP silently shortens to what is held. Upgrade: v3-style growable cardinality.
 uint256 constant OBS = 1024;
 uint256 constant BPS = 10_000;
+bytes32 constant ANCHOR = bytes32(uint256(1)); // salt of the full-range anchor; the managed position uses 0
 // ponytail: one checkpoint after a long quiet spell writes every epoch it spans (~23k gas each), and close() settles
 // every unsettled epoch (~80k each). 104 (two years of weekly epochs) keeps both under the 2^24 per-transaction gas
 // cap (EIP-7825). Upgrade: checkpoint and settle in bounded chunks.
@@ -233,7 +235,7 @@ contract Leash is BaseHook, IUnlockCallback {
             t.auctionEnd < block.timestamp + t.twapWindow || t.twapWindow == 0 || t.epochLength == 0 || t.epochs == 0
                 || t.epochs > MAX_EPOCHS || t.maxFee > LPFeeLibrary.MAX_LP_FEE || t.minFee > t.maxFee
                 || t.minLiquidity == 0 || t.uptimeBps > BPS || t.managerFeeBps > BPS || t.startStableBps > BPS
-                || t.endStableBps > BPS || t.maxTickDeviation >= t.minHalfWidth
+                || t.endStableBps > BPS || t.maxTickDeviation >= t.minHalfWidth || t.anchorLiquidity == 0
         ) revert BadTerms();
         id = key.toId();
         int24 tick = poolManager.initialize(key, sqrtPriceX96); // reverts if the pool already exists
@@ -253,6 +255,11 @@ contract Leash is BaseHook, IUnlockCallback {
         _pull(key.currency0, msg.sender, amount0);
         _pull(key.currency1, msg.sender, amount1);
         _place(key, m, tick, tick, initial.tickLower, initial.tickUpper, initial.liquidity);
+        // The anchor puts liquidity at every price, so moving or holding the price anywhere costs capital and
+        // invites arbitrage: that is what secures the TWAP. Funded from idle; only close removes it.
+        ModifyLiquidityParams[2] memory ops;
+        ops[0] = _anchorOp(key, int256(uint256(t.anchorLiquidity)));
+        _modify(key, m, ops);
         emit MandateCreated(id, msg.sender, key, amount0, amount1);
     }
 
@@ -267,7 +274,11 @@ contract Leash is BaseHook, IUnlockCallback {
         while (hired && !m.breached && m.settled < m.terms.epochs) _settle(key, m, m.settled);
 
         m.closed = true;
-        _move(key, m, 0, 0, 0);
+        ModifyLiquidityParams[2] memory ops; // pull the managed position and the anchor; the anchor's fees ride along
+        ops[0] = ModifyLiquidityParams(m.tickLower, m.tickUpper, -int256(uint256(m.liquidity)), 0);
+        ops[1] = _anchorOp(key, -int256(uint256(m.terms.anchorLiquidity)));
+        (m.tickLower, m.tickUpper, m.liquidity) = (0, 0, 0);
+        _modify(key, m, ops);
         if (hired) owed[m.manager][_stable(key, m)] += m.bond; // zero if slashed
         m.bond = 0;
 
@@ -439,15 +450,31 @@ contract Leash is BaseHook, IUnlockCallback {
         inRange = m.tickLower <= twap && twap < m.tickUpper;
         deep = m.liquidity >= m.terms.minLiquidity;
 
-        uint160 p = TickMath.getSqrtPriceAtTick(twap);
-        uint160 lo = TickMath.getSqrtPriceAtTick(m.tickLower);
-        uint160 hi = TickMath.getSqrtPriceAtTick(m.tickUpper);
-        (uint256 a0, uint256 a1) = (m.idle0, m.idle1);
-        if (p < hi) a0 += SqrtPriceMath.getAmount0Delta(p > lo ? p : lo, hi, m.liquidity, false);
-        if (p > lo) a1 += SqrtPriceMath.getAmount1Delta(lo, p < hi ? p : hi, m.liquidity, false);
-        uint256 v0 = FullMath.mulDiv(FullMath.mulDiv(a0, p, FixedPoint96.Q96), p, FixedPoint96.Q96); // in currency1
-        if (v0 + a1 > 0) stableBps = uint16(FullMath.mulDiv(m.terms.stableIs0 ? v0 : a1, BPS, v0 + a1));
+        stableBps = _stableBps(key, m, TickMath.getSqrtPriceAtTick(twap));
         onPace = stableBps <= _glide(m);
+    }
+
+    /// Stablecoin share of the inventory (idle + managed position + anchor), all valued at sqrt price p.
+    function _stableBps(PoolKey calldata key, Mandate storage m, uint160 p) internal view returns (uint16) {
+        (uint256 a0, uint256 a1) = _amounts(p, m.tickLower, m.tickUpper, m.liquidity);
+        (uint256 b0, uint256 b1) = m.closed
+            ? (0, 0)
+            : _amounts(
+                p,
+                TickMath.minUsableTick(key.tickSpacing),
+                TickMath.maxUsableTick(key.tickSpacing),
+                m.terms.anchorLiquidity
+            );
+        (a0, a1) = (a0 + b0 + m.idle0, a1 + b1 + m.idle1);
+        uint256 v0 = FullMath.mulDiv(FullMath.mulDiv(a0, p, FixedPoint96.Q96), p, FixedPoint96.Q96); // in currency1
+        return v0 + a1 == 0 ? 0 : uint16(FullMath.mulDiv(m.terms.stableIs0 ? v0 : a1, BPS, v0 + a1));
+    }
+
+    /// Token amounts of `liq` over [lo, hi) at sqrt price p.
+    function _amounts(uint160 p, int24 lo, int24 hi, uint128 liq) internal pure returns (uint256 a0, uint256 a1) {
+        (uint160 l, uint160 h) = (TickMath.getSqrtPriceAtTick(lo), TickMath.getSqrtPriceAtTick(hi));
+        if (p < h) a0 = SqrtPriceMath.getAmount0Delta(p > l ? p : l, h, liq, false);
+        if (p > l) a1 = SqrtPriceMath.getAmount1Delta(l, p < h ? p : h, liq, false);
     }
 
     /// Max stablecoin share now: linear from startStableBps at epoch 0 to endStableBps at the mandate's end.
@@ -527,38 +554,49 @@ contract Leash is BaseHook, IUnlockCallback {
         return _move(key, m, lo, hi, liq);
     }
 
-    /// Replaces the position (or, given the same one, just collects its fees). Returns the fees collected.
+    /// Replaces the managed position (or, given the same one, just collects its fees). Returns the fees collected.
     function _move(PoolKey calldata key, Mandate storage m, int24 lo, int24 hi, uint128 liq)
+        internal
+        returns (uint256, uint256)
+    {
+        bool poke = lo == m.tickLower && hi == m.tickUpper && liq == m.liquidity; // zero-liquidity update
+        ModifyLiquidityParams[2] memory ops; // an op with tickLower == tickUpper is skipped (no old or no new position)
+        ops[0] = ModifyLiquidityParams(m.tickLower, m.tickUpper, poke ? int256(0) : -int256(uint256(m.liquidity)), 0);
+        if (!poke) ops[1] = ModifyLiquidityParams(lo, hi, int256(uint256(liq)), 0);
+        (m.tickLower, m.tickUpper, m.liquidity) = (lo, hi, liq);
+        return _modify(key, m, ops);
+    }
+
+    function _anchorOp(PoolKey calldata key, int256 delta) internal pure returns (ModifyLiquidityParams memory) {
+        return ModifyLiquidityParams(
+            TickMath.minUsableTick(key.tickSpacing), TickMath.maxUsableTick(key.tickSpacing), delta, ANCHOR
+        );
+    }
+
+    /// Runs the ops in one unlock and books the result. Collected fees wait outside idle until settled (or, at
+    /// close, go to the treasury). Underflow here reverts the whole call: positions can't use more than this
+    /// mandate's inventory (not bonds, other mandates, or unsettled fees).
+    function _modify(PoolKey calldata key, Mandate storage m, ModifyLiquidityParams[2] memory ops)
         internal
         returns (uint256 f0, uint256 f1)
     {
-        bytes memory data = abi.encode(key, m.tickLower, m.tickUpper, m.liquidity, lo, hi, liq);
-        (BalanceDelta d, BalanceDelta fees) = abi.decode(poolManager.unlock(data), (BalanceDelta, BalanceDelta));
+        (BalanceDelta d, BalanceDelta fees) =
+            abi.decode(poolManager.unlock(abi.encode(key, ops)), (BalanceDelta, BalanceDelta));
         (f0, f1) = (uint128(fees.amount0()), uint128(fees.amount1()));
-        // Fees wait outside idle until settled. Underflow here reverts the whole move: a position can't use more
-        // than this mandate's inventory (not bonds, other mandates, or unsettled fees).
         m.idle0 = _apply(m.idle0, d.amount0() - fees.amount0());
         m.idle1 = _apply(m.idle1, d.amount1() - fees.amount1());
         (m.fees0, m.fees1) = (m.fees0 + f0, m.fees1 + f1);
-        (m.tickLower, m.tickUpper, m.liquidity) = (lo, hi, liq);
     }
 
     function unlockCallback(bytes calldata data) external onlyPoolManager returns (bytes memory) {
-        (PoolKey memory key, int24 oldLo, int24 oldHi, uint128 oldLiq, int24 lo, int24 hi, uint128 liq) =
-            abi.decode(data, (PoolKey, int24, int24, uint128, int24, int24, uint128));
-
-        bool poke = lo == oldLo && hi == oldHi && liq == oldLiq; // zero-liquidity update: collect fees only
+        (PoolKey memory key, ModifyLiquidityParams[2] memory ops) =
+            abi.decode(data, (PoolKey, ModifyLiquidityParams[2]));
         BalanceDelta d; // principal plus fees
         BalanceDelta fees;
-        if (oldLiq > 0) {
-            (d, fees) = poolManager.modifyLiquidity(
-                key, ModifyLiquidityParams(oldLo, oldHi, poke ? int256(0) : -int256(uint256(oldLiq)), 0), ""
-            );
-        }
-        if (liq > 0 && !poke) {
-            (BalanceDelta added,) =
-                poolManager.modifyLiquidity(key, ModifyLiquidityParams(lo, hi, int256(uint256(liq)), 0), "");
-            d = d + added;
+        for (uint256 i; i < 2; i++) {
+            if (ops[i].tickLower == ops[i].tickUpper) continue;
+            (BalanceDelta di, BalanceDelta fi) = poolManager.modifyLiquidity(key, ops[i], "");
+            (d, fees) = (d + di, fees + fi);
         }
         _resolve(key.currency0, d.amount0());
         _resolve(key.currency1, d.amount1());

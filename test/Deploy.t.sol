@@ -41,20 +41,14 @@ contract DeployTest is Test {
         assertGt(m.terms.auctionEnd, block.timestamp, "auction still open");
         assertFalse(m.closed);
 
-        // Idle is the deposits minus what the opening position took at the opening price; swaps don't touch it.
-        uint160 open = local.openSqrtPriceX96();
-        uint160 lo = TickMath.getSqrtPriceAtTick(m.tickLower);
-        uint160 hi = TickMath.getSqrtPriceAtTick(m.tickUpper);
+        _assertIdle(m);
         bool usdcIs0 = m.terms.stableIs0;
-        (uint256 d0, uint256 d1) =
-            usdcIs0 ? (local.USDC_DEPOSIT(), local.TKN_DEPOSIT()) : (local.TKN_DEPOSIT(), local.USDC_DEPOSIT());
-        assertEq(m.idle0, d0 - SqrtPriceMath.getAmount0Delta(open, hi, m.liquidity, true));
-        assertEq(m.idle1, d1 - SqrtPriceMath.getAmount1Delta(lo, open, m.liquidity, true));
-        assertApproxEqRel(m.idle0, d0 / 2, 0.01e18, "about half of each deposit stays idle");
         assertGt(m.liquidity, m.terms.minLiquidity, "opening position clears the depth floor");
         (uint256 idleTkn, uint256 idleUsdc) = usdcIs0 ? (m.idle1, m.idle0) : (m.idle0, m.idle1);
         assertEq(local.tkn().balanceOf(address(leash)), idleTkn, "ledger == balance (TKN)");
-        assertEq(local.usdc().balanceOf(address(leash)), idleUsdc + local.BID1() + local.BID2(), "ledger == balance (mUSDC)");
+        assertEq(
+            local.usdc().balanceOf(address(leash)), idleUsdc + local.BID1() + local.BID2(), "ledger == balance (mUSDC)"
+        );
 
         IPoolManager pm = local.manager();
         (, int24 tick,, uint24 lpFee) = pm.getSlot0(local.id());
@@ -64,5 +58,23 @@ contract DeployTest is Test {
         assertTrue(tick >= m.tickLower && tick < m.tickUpper, "in range after the swaps");
         (bool inRange, bool deep, bool onPace,) = leash.compliance(local.poolKey());
         assertTrue(inRange && deep && onPace, "seeded mandate starts compliant");
+    }
+
+    /// Idle is the deposits minus what the opening position and the full-range anchor took at the opening price;
+    /// swaps don't touch it.
+    function _assertIdle(Mandate memory m) internal view {
+        uint160 open = local.openSqrtPriceX96();
+        uint160 amin = TickMath.getSqrtPriceAtTick(TickMath.minUsableTick(60));
+        uint160 amax = TickMath.getSqrtPriceAtTick(TickMath.maxUsableTick(60));
+        (uint256 d0, uint256 d1) = m.terms.stableIs0
+            ? (local.USDC_DEPOSIT(), local.TKN_DEPOSIT())
+            : (local.TKN_DEPOSIT(), local.USDC_DEPOSIT());
+        uint256 used0 = SqrtPriceMath.getAmount0Delta(open, TickMath.getSqrtPriceAtTick(m.tickUpper), m.liquidity, true)
+            + SqrtPriceMath.getAmount0Delta(open, amax, m.terms.anchorLiquidity, true);
+        uint256 used1 = SqrtPriceMath.getAmount1Delta(TickMath.getSqrtPriceAtTick(m.tickLower), open, m.liquidity, true)
+            + SqrtPriceMath.getAmount1Delta(amin, open, m.terms.anchorLiquidity, true);
+        assertEq(m.idle0, d0 - used0);
+        assertEq(m.idle1, d1 - used1);
+        assertApproxEqRel(m.idle0, d0 * 3 / 10, 0.01e18, "half in the range, a fifth in the anchor, ~30% idle");
     }
 }

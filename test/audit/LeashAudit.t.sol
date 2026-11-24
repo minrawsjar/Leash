@@ -79,7 +79,8 @@ contract LeashAuditTest is Test, Deployers {
             startStableBps: 10_000,
             endStableBps: 10_000,
             minFee: 500,
-            minHalfWidth: 200
+            minHalfWidth: 200,
+            anchorLiquidity: 20e18 // full range, ~20 of each token at 1:1: 20% of the inventory's value
         });
     }
 

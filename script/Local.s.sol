@@ -88,7 +88,7 @@ contract Local is DeployLeash {
         Position memory p = initialPosition(a0, a1);
         t0.approve(address(leash), a0);
         t1.approve(address(leash), a1);
-        leash.createMandate(key, openSqrtPriceX96, terms(usdcIs0, p.liquidity), a0, a1, p);
+        leash.createMandate(key, openSqrtPriceX96, terms(usdcIs0, p.liquidity, anchorLiquidity(a0, a1)), a0, a1, p);
         vm.stopBroadcast();
 
         bid(MANAGER1, BID1);
@@ -96,7 +96,8 @@ contract Local is DeployLeash {
         trade();
     }
 
-    /// Half of each deposit in a +-1200 tick (~12%) range around the opening price; the rest stays idle.
+    /// Half of each deposit in a +-1200 tick (~12%) range around the opening price. A fifth goes to the full-range
+    /// anchor (see anchorLiquidity) and the remaining ~30% stays idle.
     function initialPosition(uint256 a0, uint256 a1) internal view returns (Position memory p) {
         int24 base = TickMath.getTickAtSqrtPrice(openSqrtPriceX96) / 60 * 60;
         (p.tickLower, p.tickUpper) = (base - 1200, base + 1200);
@@ -109,7 +110,18 @@ contract Local is DeployLeash {
         );
     }
 
-    function terms(bool usdcIs0, uint128 liquidity) internal view returns (Terms memory) {
+    /// A fifth of each deposit across the full range: the anchor holds ~20% of the inventory's value.
+    function anchorLiquidity(uint256 a0, uint256 a1) internal view returns (uint128) {
+        return LiquidityAmounts.getLiquidityForAmounts(
+            openSqrtPriceX96,
+            TickMath.getSqrtPriceAtTick(TickMath.minUsableTick(60)),
+            TickMath.getSqrtPriceAtTick(TickMath.maxUsableTick(60)),
+            a0 / 5,
+            a1 / 5
+        );
+    }
+
+    function terms(bool usdcIs0, uint128 liquidity, uint128 anchor) internal view returns (Terms memory) {
         return Terms({
             stableIs0: usdcIs0,
             maxFee: 10_000, // 1%
@@ -125,7 +137,8 @@ contract Local is DeployLeash {
             startStableBps: 6000, // inventory opens at 50% stablecoin by value, so it starts on pace
             endStableBps: 8000,
             minFee: 500, // 0.05%: every round trip through the pool costs at least this
-            minHalfWidth: 200 // >= 2x maxTickDeviation: a pushed spot can reach at most half way to the range's edge
+            minHalfWidth: 200, // >= 2x maxTickDeviation: a pushed spot can reach at most half way to the range's edge
+            anchorLiquidity: anchor // full range, ~20% of the deposits' value
         });
     }
 

@@ -61,7 +61,8 @@ contract Handler is Test {
             startStableBps: 6000,
             endStableBps: 9000,
             minFee: 500,
-            minHalfWidth: 400
+            minHalfWidth: 400,
+            anchorLiquidity: 200e18 // full range, ~200 of each token: 20% of the inventory
         });
         leash.createMandate(key, TickMath.getSqrtPriceAtTick(0), t, 1_000e18, 1_000e18, Position(-600, 600, 2_000e18));
     }

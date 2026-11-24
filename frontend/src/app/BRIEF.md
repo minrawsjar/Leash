@@ -1,4 +1,4 @@
-# Leash dApp brief (round 4)
+# Leash dApp brief (round 5: post a mandate)
 
 The app at `/app`: every Leash mandate, live, and every write a treasury, manager or keeper makes.
 
@@ -11,15 +11,42 @@ The app at `/app`: every Leash mandate, live, and every write a treasury, manage
 - `#/m/<id>/manage`: range picker around the TWAP, size as % of the current position (Floor / Keep / +5% pin exact
   bigints), every rebalance guard as a live check, setFee.
 - `#/m/<id>/settle`: checkpoint, settle next epoch, close (treasury), claim, track records.
-- `#/create`: all 16 Terms, presets, checks mirrored in `plan.ts`, exact-args review, free-tick-spacing offer, and on
-  narrow screens a sticky "N things to fix · review" bar that scrolls to the review.
+- `#/create`: a term sheet. Assistant panel on top, five numbered sections (01 Inventory, 02 Auction and bond,
+  03 Rules the manager must follow, 04 Pay and pace, 05 Opening position), a sticky receipt with the exact call.
+
+## Post a mandate: rules
+- It is a term sheet, not a card stack. Sections are separated by one hairline, headed by a mono uppercase label
+  with its number in faint ink. No boxes around sections; only the assistant and the receipt are panels.
+- Inputs are a value on a hairline: no filled grey boxes. Units sit inside the line as a quiet mono suffix
+  (TKN, mUSDC, hours, min, ticks, %). The form speaks hours, minutes, %, whole tokens; plan.ts converts.
+- Under a field, one line at most: the derived fact a person needs (≈ 1.00% for ticks, pips for fees, the
+  closing time for the auction, the anchor's share of value). Raw liquidity and bigints live in "Exact call".
+- Every field and section has an ⓘ: a native popover (`popovertarget`), aria-label "About <label>", Esc and
+  click-outside close it, placed under its button and following it on scroll. 1–3 sentences: what it is, a
+  typical value, what goes wrong at either end. True to Leash.sol; if the contract changes, the text changes.
+- Problems show at the field (rose line + rose text) AND in the receipt, where each one is a link that focuses its
+  field. plan.ts owns the checks and says which field each belongs to (`at`, `owner`); a paired check (gap vs
+  half-width) gets a short field-specific message on the second field instead of the same sentence twice.
+- Rose is for problems only. Violet only for the bond. Mint marks what the assistant filled (a dot before its
+  reason, a mint underline) and the one "all checks pass" line.
+
+## The assistant (POST /api/draft)
+- Server-side only: `frontend/api/draft.ts` (Vercel function; the dev server mounts the same handler). OpenRouter,
+  model constant `MODEL` = `anthropic/claude-haiku-5.5`, strict json_schema built from the zod `Draft` schema,
+  max_tokens 4000. Key: `OPENROUTER_API_KEY`, read from the repo root .env by vite.config.ts in dev (never
+  VITE_-prefixed), from process.env in production. `dist/` must never contain `sk-or-`.
+- It fills the form and stops. It never signs, approves or posts. Its output goes through applyDraft → plan(),
+  so a bad value it picks is flagged exactly like a hand-typed one.
+- It never sets token addresses unless the user typed them; it asks instead. Assumptions and open questions list
+  under the panel. A hand edit removes that field's mint mark and reason.
+- Failures are plain sentences in the panel; the rest of the page keeps working without the assistant.
 
 ## Verification
-- `verify.ts` (node, fresh local.sh): 31 checks through actions.ts/plan.ts — outbid/refund/claim, create (and thin
-  anchor, duplicate pool refused), every rebalance revert decoded, setFee bounds, settle order, close, claim.
-- In-browser: CDP script injects an EIP-1193 shim forwarding to anvil (unlocked dev accounts) and clicks real
-  buttons: Rebalance (manager), Use free spacing + Approve and post mandate (treasury), Leader+1 + Approve and bid
-  (manager #2), Checkpoint + Claim. Each confirmed with `cast call`.
+- `verify.ts` (node, fresh local.sh): 31 checks through actions.ts/plan.ts.
+- `node api/draft.test.ts`: the handler's error paths with a stand-in fetch (no key → 503, 401/402/429/5xx,
+  network, finish_reason length, bad JSON, off-schema), the request shape, and the recorded sample draft
+  (`api/draft.sample.json`) through applyDraft and plan() with no problems.
+- Screens: CDP headless Chrome, Fetch interception answers /api/draft from the sample for the filled state.
 
 ## Rules learned
 - anvil only mines on demand: local "now" = max(last block ts, wall clock), in snapshot AND in create's auctionEnd.
@@ -27,15 +54,13 @@ The app at `/app`: every Leash mandate, live, and every write a treasury, manage
 - "Next bid from X" with X = bond + 1 wei renders as the bond itself; say "must exceed X" instead.
 - Spot from the tick is floored (2 shows as 1.9998); use sqrtPriceX96 for the headline number.
 - A chart with one sample draws nothing; pad it to a flat line.
-- Phone screenshots: use CDP Emulation (390px), not an iframe under virtual time.
-
-## Done in round 4
-- Activity rows show relative time (block timestamps, cached per block, visible rows only).
-- Settle tab puts Close first when it is the action that matters (unhired, ended, breached).
-- 390px checked for index, dashboard, auction, manage, settle, create.
+- Phone screenshots: CDP Emulation (390px), viewport shots at scroll positions; full-page captures smear the
+  sticky bar. Set `scroll-behavior: auto` before scripted scrolling.
+- A grid item with a nowrap row inside (the chips) needs `minmax(0, 1fr)` or it widens the whole page at 390px,
+  and then every fixed-position popover is placed against the wrong width.
 
 ## Open problems
 - Wallet connect itself is only exercised through an injected shim (no real extension headless).
 - Unichain Sepolia has no mandates yet: only the empty state and the Blockscout log path are proven there.
-- Bundle is ~615 kB (viem); split the app chunk from the landing page if load time matters.
-- Fees between two settles show only once collected (contract books fees when collected, by design).
+- The local chain's seeded mandate sits at spacing 60, so a fresh create form opens with one problem (pool taken)
+  and offers the free spacing. Correct, but it is the first thing people see.

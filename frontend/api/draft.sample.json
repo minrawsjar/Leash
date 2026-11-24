@@ -1,0 +1,34 @@
+{
+  "token": null,
+  "stable": null,
+  "tokenAmount": { "value": 100000, "why": "10% of the 1M TKN treasury, the amount to sell." },
+  "stableAmount": { "value": 200000, "why": "Matches the token side by value so the anchor stays thick." },
+  "price": { "value": 2, "why": "No price given; kept the form's current opening price." },
+  "tickSpacing": { "value": 60, "why": "The usual spacing; nothing asked for otherwise." },
+  "rangePct": { "value": 12, "why": "Default width, comfortably covers the 300-tick half-width." },
+  "positionPct": { "value": 50, "why": "Default: half of each side starts in the position." },
+  "anchorPct": { "value": 22, "why": "A little above 20% to clear the 19% anchor minimum." },
+  "floorPct": { "value": 50, "why": "Default depth floor." },
+  "auctionHours": { "value": 24, "why": "One day of bidding, usual for a real mandate." },
+  "minBond": { "value": 25000, "why": "You asked for a bond of at least 25k." },
+  "epochHours": { "value": 168, "why": "Weekly epochs across the quarter." },
+  "epochs": { "value": 12, "why": "Twelve weeks is a quarter." },
+  "uptimePct": { "value": 95, "why": "Default uptime." },
+  "managerFeePct": { "value": 20, "why": "Default manager share." },
+  "twapMins": { "value": 30, "why": "Default window, hard to push for a mid-size pool." },
+  "maxTickDeviation": { "value": 100, "why": "About 1%, the default gap." },
+  "minHalfWidth": { "value": 300, "why": "Default, above the 100-tick gap." },
+  "minFeePct": { "value": 0.05, "why": "Your fee floor of 0.05%." },
+  "maxFeePct": { "value": 0.5, "why": "Your fee cap of 0.5%." },
+  "startStablePct": { "value": 55, "why": "The deposit opens at 50% stablecoin; a little headroom." },
+  "endStablePct": { "value": 100, "why": "All 100k TKN may be sold into USDC by the end." },
+  "assumptions": [
+    "The opening price stays at 2 USDC per TKN.",
+    "The deposit is the 100k TKN to sell plus 200k USDC to pair it.",
+    "Weekly epochs, so the quarter is 12 of them."
+  ],
+  "questions": [
+    "Which addresses are TKN and USDC on this network? The form keeps the ones already filled in.",
+    "Is 2 USDC the market price today?"
+  ]
+}

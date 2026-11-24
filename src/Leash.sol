@@ -215,10 +215,12 @@ contract Leash is BaseHook, IUnlockCallback {
         uint256 amount1,
         Position calldata initial
     ) external returns (PoolId id) {
-        // Native ETH is rejected: SafeTransferLib treats calls to address(0) as successful transfers.
+        // Both currencies must be deployed contracts: SafeTransferLib treats a call to an address without code
+        // (native ETH's address(0), or a token not deployed yet) as a successful transfer, which would credit a
+        // deposit or bond that never arrived.
         if (
             address(key.hooks) != address(this) || key.fee != LPFeeLibrary.DYNAMIC_FEE_FLAG
-                || key.currency0.isAddressZero()
+                || Currency.unwrap(key.currency0).code.length == 0 || Currency.unwrap(key.currency1).code.length == 0
         ) {
             revert NotLeashPool();
         }

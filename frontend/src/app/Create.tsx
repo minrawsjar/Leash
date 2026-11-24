@@ -40,10 +40,11 @@ const INFO: Record<Field | 's1' | 's2' | 's3' | 's4' | 's5', string> = {
   anchorPct: 'The share of each side placed in the permanent full-range anchor, which the manager cannot touch. It must hold at least 19% of the deposit’s value, or createMandate reverts with ThinAnchor.',
 };
 
-const EXAMPLES = [
-  'Sell 10% of our 1M TKN treasury into USDC over a quarter, keep fees between 0.05% and 0.5%, want a bond of at least 25k',
-  'Two-week trial with 50k TKN at $2, daily epochs, cautious rules, a small 2k bond',
-  'Make a market in 250k TKN for six months without net selling, fee cap 0.3%, strict uptime',
+// Short on the chip, full in the box: three different shapes of request, not three paraphrases.
+const EXAMPLES: [string, string][] = [
+  ['Sell 10% over a quarter', 'Sell 10% of our 1M TKN treasury into USDC over a quarter, keep fees between 0.05% and 0.5%, want a bond of at least 25k'],
+  ['Two-week trial', 'Two-week trial with 50k TKN at $2, daily epochs, cautious rules, a small 2k bond'],
+  ['Six months, no net selling', 'Make a market in 250k TKN for six months without net selling, fee cap 0.3%, strict uptime'],
 ];
 
 export function Create() {
@@ -117,7 +118,13 @@ export function Create() {
       </section>
 
       <Assist ctx={{ token0: f.token, token1: f.stable, symbols: { token: e?.tok?.symbol, stable: e?.stb?.symbol }, decimals: { token: e?.tok?.decimals, stable: e?.stb?.decimals }, spot: Number(f.price) || undefined }}
-        onDraft={(d) => { const r = applyDraft(f, d); setF(r.form); setWhy(r.why); }} />
+        onDraft={(d) => {
+          // Mark only what the draft changed: a mint dot on every field would mark nothing.
+          const r = applyDraft(f, d);
+          const changed = Object.fromEntries(Object.entries(r.why).filter(([k]) => String(r.form[k as Field]) !== String(f[k as Field])));
+          setF(r.form); setWhy(changed);
+          return Object.keys(changed).length;
+        }} />
 
       <button type="button" className={`create-status ${problems.length ? 'bad' : 'ok'}`} onClick={() => review.current?.scrollIntoView({ behavior: 'smooth' })}>
         {problems.length ? `${problems.length} to fix before posting` : 'Ready to post'}<span aria-hidden>Review ↓</span>
@@ -133,8 +140,8 @@ export function Create() {
           <Sec n="01" title="Inventory" info={INFO.s1}>
             {field('token', 'Treasury token', { wide: true, mono: true, text: true, sub: holds(e?.tok ?? null, f.token) })}
             {field('stable', 'Stablecoin', { wide: true, mono: true, text: true, sub: holds(e?.stb ?? null, f.stable) })}
-            {field('tokenAmount', 'Deposit', { unit: sym.tok, text: true })}
-            {field('stableAmount', 'Deposit', { unit: sym.stb, text: true, sub: ok ? `opens at ${pct(ok.openStableBps)} stablecoin by value` : undefined })}
+            {field('tokenAmount', 'Token deposit', { unit: sym.tok, text: true })}
+            {field('stableAmount', 'Stablecoin deposit', { unit: sym.stb, text: true, sub: ok ? `opens at ${pct(ok.openStableBps)} stablecoin by value` : undefined })}
             {field('price', 'Opening price', { unit: `${sym.stb} / ${sym.tok}`, text: true, sub: ok ? `opening tick ${ok.openTick}` : undefined })}
             {field('tickSpacing', 'Tick spacing', { unit: 'ticks' })}
             {!!taken.data && <p className="fld wide"><button type="button" className="link" onClick={() => set('tickSpacing')(String(taken.data))}>Use tick spacing {taken.data} instead: that pool is free</button></p>}
@@ -292,9 +299,9 @@ function Fld({ k, label, value, onChange, err, why, unit, sub, wide, mono, text 
 type Ctx = { token0?: string; token1?: string; symbols?: { token?: string; stable?: string }; decimals?: { token?: number; stable?: number }; spot?: number };
 
 /** "Describe what you need": the server drafts, this fills the form, the person reviews. Nothing is signed here. */
-function Assist({ ctx, onDraft }: { ctx: Ctx; onDraft: (d: Draft) => void }) {
+function Assist({ ctx, onDraft }: { ctx: Ctx; onDraft: (d: Draft) => number }) {
   const [text, setText] = useState('');
-  const [s, setS] = useState<{ busy?: boolean; err?: string; done?: Draft }>({});
+  const [s, setS] = useState<{ busy?: boolean; err?: string; done?: Draft; changed?: number }>({});
   async function go(req = text) {
     if (!req.trim()) return;
     setS({ busy: true });
@@ -302,8 +309,7 @@ function Assist({ ctx, onDraft }: { ctx: Ctx; onDraft: (d: Draft) => void }) {
       const r = await fetch('/api/draft', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ requirements: req, context: ctx }) });
       const body = await r.json().catch(() => ({ error: `The assistant is not available here (HTTP ${r.status}).` }));
       if (!r.ok || !body.draft) return setS({ err: body.error ?? `The assistant failed (HTTP ${r.status}).` });
-      onDraft(body.draft);
-      setS({ done: body.draft });
+      setS({ done: body.draft, changed: onDraft(body.draft) });
     } catch {
       setS({ err: 'Could not reach the assistant. The form still works by hand.' });
     }
@@ -320,12 +326,13 @@ function Assist({ ctx, onDraft }: { ctx: Ctx; onDraft: (d: Draft) => void }) {
         onKeyDown={(x) => { if (x.key === 'Enter' && (x.metaKey || x.ctrlKey)) go(); }} />
       <div className="assist-row">
         <div className="chips" role="group" aria-label="Examples">
-          {EXAMPLES.map((x) => <button key={x} type="button" className="chip" onClick={() => setText(x)}>{x}</button>)}
+          <span className="chips-l" aria-hidden>Try</span>
+          {EXAMPLES.map(([k, x]) => <button key={k} type="button" className="chip" title={x} onClick={() => setText(x)}>{k}</button>)}
         </div>
         <button type="button" className="btn secondary sm" disabled={s.busy || !text.trim()} onClick={() => go()} aria-busy={s.busy}>{s.busy ? 'Drafting…' : 'Draft the terms'}</button>
       </div>
       <p className="assist-note" role="status" aria-live="polite">
-        {s.busy ? 'Reading your requirements. This takes a few seconds.' : s.err ? <span className="err">{s.err}</span> : d ? 'Filled. Fields the assistant set carry a mint mark and its reason; check them, then the review.' : ''}
+        {s.busy ? 'Reading your requirements. This takes a few seconds.' : s.err ? <span className="err">{s.err}</span> : d ? (s.changed ? `Changed ${s.changed} field${s.changed > 1 ? 's' : ''}, each marked in mint with the reason. Check them, then the review.` : 'The draft matches what the form already says.') : ''}
       </p>
       {d && (d.assumptions.length > 0 || d.questions.length > 0) && (
         <div className="assist-out">

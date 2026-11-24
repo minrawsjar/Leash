@@ -2,7 +2,7 @@
 // the recorded sample draft through applyDraft and plan(), as the page does it.
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { draft, Draft } from './draft.ts';
+import { draft, Raw, toDraft, type Draft } from './draft.ts';
 import { applyDraft, defaultForm, plan } from '../src/app/plan.ts';
 
 const sample = JSON.parse(readFileSync(new URL('./draft.sample.json', import.meta.url), 'utf8'));
@@ -21,25 +21,28 @@ assert.equal((await run(reply(500, {}))).status, 502, '500: 502');
 assert.equal((await run((async () => { throw new TypeError('offline'); }) as typeof fetch)).status, 502, 'network error: 502');
 assert.equal((await run(chat(JSON.stringify(sample), 'length'))).status, 502, 'finish_reason length: 502');
 assert.equal((await run(chat('not json'))).status, 502, 'unparseable content: 502');
-assert.equal((await run(chat(JSON.stringify({ ...sample, epochs: { value: 'twelve', why: '' } })))).status, 502, 'off-schema: 502');
+assert.equal((await run(chat(JSON.stringify({ ...sample, epochs: 'twelve' })))).status, 502, 'off-schema: 502');
 const good = await run(chat(JSON.stringify(sample)));
 assert.equal(good.status, 200, 'valid draft: 200');
-assert.deepEqual((good.body as { draft: Draft }).draft, Draft.parse(sample));
+const got = (good.body as { draft: Draft }).draft;
+assert.deepEqual(got, toDraft(Raw.parse(sample)));
+assert.equal(got.minBond?.value, 25000); assert.match(got.minBond?.why ?? '', /25k/); assert.equal(got.token, null, 'empty address → null');
 
-// the request it sends: model, strict schema, the key only in the header
+// the request it sends: model, strict schema (flat: no nested objects but the arrays), the key only in the header
 let sent: { url: string; init: RequestInit } | undefined;
 await draft(ask, { key: 'k', fetch: (async (url: string, init: RequestInit) => { sent = { url, init }; return new Response('{}'); }) as unknown as typeof fetch });
 const body = JSON.parse(String(sent!.init.body));
 assert.equal(body.model, 'anthropic/claude-haiku-5.5');
 assert.equal(body.response_format.json_schema.strict, true);
 assert.equal(body.response_format.json_schema.schema.additionalProperties, false);
-assert.deepEqual(body.response_format.json_schema.schema.required.sort(), Object.keys(Draft.shape).sort());
+assert.ok(!JSON.stringify(body.response_format).includes('anyOf'), 'no unions');
+assert.deepEqual(body.response_format.json_schema.schema.required.sort(), Object.keys(Raw.shape).sort());
 assert.equal((sent!.init.headers as Record<string, string>).Authorization, 'Bearer k');
 assert.ok(!String(sent!.init.body).includes('Bearer'), 'key not in the body');
 
 // UI fill: sample → form → plan, with stand-in token metadata
 const tkn = '0x1111111111111111111111111111111111111111', usd = '0x2222222222222222222222222222222222222222';
-const { form, why } = applyDraft(defaultForm(tkn, usd), Draft.parse(sample));
+const { form, why } = applyDraft(defaultForm(tkn, usd), toDraft(Raw.parse(sample)));
 assert.equal(form.token, tkn, 'addresses the draft left null are kept');
 assert.equal(form.maxFeePct, '0.5'); assert.equal(form.epochHours, 168); assert.equal(form.minBond, '25000');
 assert.ok(why.minBond && !why.token, 'reasons only for fields the draft set');

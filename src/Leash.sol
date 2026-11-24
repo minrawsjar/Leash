@@ -62,6 +62,7 @@ struct Mandate {
     bool breached; // an epoch missed its uptime: bond slashed, manager fired
     bool closed;
     bool swept; // fees earned before the manager's first epoch went to the treasury
+    uint40 lastRebalance; // timestamp of the last rebalance: at most one per block
     Terms terms;
 }
 
@@ -99,6 +100,7 @@ uint256 constant MAX_EPOCHS = 104;
 struct Oracle {
     uint16 index; // newest
     uint16 count;
+    int24 open; // spot tick before the first swap of the newest observation's block
     Obs[OBS] obs;
 }
 
@@ -125,6 +127,7 @@ contract Leash is BaseHook, IUnlockCallback {
     error TooShallow();
     error RangeMissesTwap();
     error SpotOffTwap();
+    error SameBlock();
     error Breached();
     error BadEpoch();
 
@@ -241,7 +244,7 @@ contract Leash is BaseHook, IUnlockCallback {
         int24 tick = poolManager.initialize(key, sqrtPriceX96); // reverts if the pool already exists
         poolManager.updateDynamicLPFee(key, t.maxFee); // dynamic-fee pools start at 0
         Oracle storage o = _oracles[id];
-        (o.obs[0], o.count) = (Obs(uint32(block.timestamp), tick, 0), 1);
+        (o.obs[0], o.count, o.open) = (Obs(uint32(block.timestamp), tick, 0), 1, tick);
 
         Mandate storage m = _mandates[id];
         m.treasury = msg.sender;
@@ -309,8 +312,15 @@ contract Leash is BaseHook, IUnlockCallback {
     function rebalance(PoolKey calldata key, int24 tickLower, int24 tickUpper, uint128 liquidity) external {
         Mandate storage m = _active(key);
         PoolId id = key.toId();
-        int24 twap = _twap(id, m.terms.twapWindow);
         (, int24 spot,,) = poolManager.getSlot0(id);
+        // The TWAP can't see within a block, so no same-block games: one rebalance per block, and none once the
+        // price has moved this block (a manager could push it and re-place liquidity behind the push).
+        Oracle storage o = _oracles[id];
+        if (m.lastRebalance == block.timestamp || (o.obs[o.index].time == block.timestamp && spot != o.open)) {
+            revert SameBlock();
+        }
+        m.lastRebalance = uint40(block.timestamp);
+        int24 twap = _twap(id, m.terms.twapWindow);
         int256 gap = int256(spot) - twap;
         if ((gap < 0 ? -gap : gap) > int256(uint256(m.terms.maxTickDeviation))) revert SpotOffTwap();
         _sweep(key, m);
@@ -502,7 +512,7 @@ contract Leash is BaseHook, IUnlockCallback {
             tick,
             last.tickCumulative + int56(tick) * int56(uint56(block.timestamp - last.time))
         );
-        o.index = i;
+        (o.index, o.open) = (i, tick);
         if (o.count < OBS) o.count++;
     }
 

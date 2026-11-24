@@ -260,29 +260,33 @@ contract LeashTest is Test, Deployers {
         leash.rebalance(key, -600, 600, 1e18);
     }
 
-    /// An attacker (or the manager's accomplice) pushes the price and the manager tries to re-centre on it
-    /// in the same transaction: the TWAP hasn't moved, so the guard refuses.
+    /// An attacker (or the manager's accomplice) pushes the price and the manager tries to re-place liquidity on
+    /// it. Same block: refused because the price moved this block. Next block: refused because spot is 400 ticks
+    /// off a TWAP that has barely moved.
     function test_rebalance_oneBlockManipulationRefused() public {
         _win();
         _swapTo(false, 100e18, 400);
         vm.prank(alice);
-        vm.expectRevert(Leash.SpotOffTwap.selector);
+        vm.expectRevert(Leash.SameBlock.selector);
         leash.rebalance(key, 0, 1200, 1_000e18);
 
-        // A centred range is refused too: the spot is still 400 ticks off the TWAP.
-        vm.prank(alice);
-        vm.expectRevert(Leash.SpotOffTwap.selector);
-        leash.rebalance(key, -600, 600, 1_000e18);
-
-        // The price is pushed back next block; after honest trading time, a normal rebalance passes.
         vm.roll(block.number + 1);
         vm.warp(block.timestamp + 12);
+        vm.prank(alice);
+        vm.expectRevert(Leash.SpotOffTwap.selector);
+        leash.rebalance(key, -600, 1200, 1_000e18);
+
+        // The price is pushed back; after honest trading time, a normal rebalance passes, once per block.
         _swapTo(true, 100e18, 0);
+        vm.roll(block.number + 1);
         vm.warp(block.timestamp + 1 hours);
         assertLe(leash.twapTick(key), 100);
-        vm.prank(alice);
+        vm.startPrank(alice);
         leash.rebalance(key, -1200, 1200, 1_000e18);
         assertEq(_m().tickLower, -1200);
+        vm.expectRevert(Leash.SameBlock.selector);
+        leash.rebalance(key, -1200, 1200, 900e18);
+        vm.stopPrank();
     }
 
     function test_rebalance_followsSustainedMove() public {
@@ -425,11 +429,11 @@ contract LeashTest is Test, Deployers {
         for (uint256 i = 1; i <= 144; i++) {
             vm.warp(auctionEnd + i * 10 minutes);
             vm.roll(block.number + 1);
-            if (i % 6 == 0) swap(key, i % 12 == 0, -1e18, ZERO_BYTES);
             if (i == 72) {
                 vm.prank(alice);
-                leash.rebalance(key, -1200, 1200, 1_000e18);
+                leash.rebalance(key, -1200, 1200, 1_000e18); // first in its block, before the swap
             }
+            if (i % 6 == 0) swap(key, i % 12 == 0, -1e18, ZERO_BYTES);
             leash.checkpoint(key);
         }
         leash.settle(key, 0);

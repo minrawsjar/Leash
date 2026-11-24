@@ -216,8 +216,8 @@ export const feePct = (pips: number) => `${(pips / 10_000).toFixed(pips % 100 ? 
 export function dur(s: number): string {
   s = Math.max(0, Math.round(s));
   const d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600), m = Math.floor((s % 3600) / 60), x = s % 60;
-  if (d) return `${d}d ${h}h`;
-  if (h) return `${h}h ${m}m`;
-  if (m) return `${m}m ${String(x).padStart(2, '0')}s`;
+  if (d) return h ? `${d}d ${h}h` : `${d}d`;
+  if (h) return m ? `${h}h ${m}m` : `${h}h`;
+  if (m) return x ? `${m}m ${String(x).padStart(2, '0')}s` : `${m}m`;
   return `${x}s`;
 }

@@ -34,7 +34,7 @@ export function Dot({ ok, label, live }: { ok: boolean | null; label: string; li
 }
 
 export function Check({ ok, children }: { ok: boolean | null; children: ReactNode }) {
-  return <li className={`check ${ok === null ? 'idle' : ok ? 'ok' : 'bad'}`}><Dot ok={ok} label="" />{children}</li>;
+  return <li className={`check ${ok === null ? "idle" : ok ? "ok" : "bad"}`}><Dot ok={ok} label="" /><span>{children}</span></li>;
 }
 
 export function TxLink({ hash }: { hash: Hex }) {

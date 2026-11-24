@@ -292,42 +292,55 @@ function Auction({ s, logs }: { s: Snapshot; logs: LeashLog[] }) {
         <div className="count">
           <Stat label={open ? 'Bidding closes in' : 'Bidding closed'}>{open ? dur(t.auctionEnd - now) : new Date(t.auctionEnd * 1000).toLocaleTimeString()}</Stat>
           <Stat label="Minimum bond">{fmt(t.minBond, stable.decimals)} {stable.symbol}</Stat>
-          <Stat label="Next bid from">{fmt(floor, stable.decimals)} {stable.symbol}</Stat>
+          {open && <Stat label="Next bid from">{fmt(floor, stable.decimals)} {stable.symbol}</Stat>}
         </div>
       </section>
 
-      <section className="card">
-        <div className="card-head"><h2>Bid</h2><span className="quiet">your bond is first-loss: slashed to the treasury on a breach</span></div>
-        <label className="field">
-          <span>Bond ({stable.symbol})</span>
-          <input inputMode="decimal" placeholder={fmt(floor, stable.decimals).replace(/,/g, '')} value={amt} onChange={(e) => setAmt(e.target.value.trim())} aria-describedby="bid-why" disabled={!open} />
-        </label>
-        <div className="row-btns">
-          <button type="button" className="btn secondary sm" disabled={!open} onClick={() => setAmt(String(Number(floor) / 10 ** stable.decimals))}>Min</button>
-          <button type="button" className="btn secondary sm" disabled={!open} onClick={() => setAmt(String(Math.ceil((Number(floor) * 1.1) / 10 ** stable.decimals)))}>+10%</button>
-        </div>
-        <Act label="Approve and bid" kind="violet" disabled={!!problem} why={problem || 'Two signatures: the token approval (skipped if already enough), then the bid. An outbid bond becomes claimable at once.'}
-          run={async () => act.bid(await wallet.ctx(net), s.key, stableAddr, parsed!)} />
-        <p id="bid-why" className="quiet small">Bidding wins the right to run the liquidity for {t.epochs} × {dur(t.epochLength)} and earn {pct(t.managerFeeBps, 0)} of each clean epoch's fees. It never gives custody.</p>
-      </section>
+      {open ? (
+        <section className="card">
+          <div className="card-head"><h2>Bid</h2><span className="quiet">your bond is first-loss: slashed to the treasury on a breach</span></div>
+          <label className="field">
+            <span>Bond ({stable.symbol})</span>
+            <input inputMode="decimal" placeholder={fmt(floor, stable.decimals).replace(/,/g, '')} value={amt} onChange={(e) => setAmt(e.target.value.trim())} aria-describedby="bid-why" />
+          </label>
+          <div className="row-btns">
+            <button type="button" className="btn secondary sm" onClick={() => setAmt(String(Number(floor) / 10 ** stable.decimals))}>Minimum</button>
+            <button type="button" className="btn secondary sm" onClick={() => setAmt(String(Math.ceil((Number(floor) * 1.1) / 10 ** stable.decimals)))}>+10%</button>
+          </div>
+          <Act label="Approve and bid" kind="violet" disabled={!!problem} why={problem || 'Two signatures: the token approval (skipped if already enough), then the bid. An outbid bond becomes claimable at once.'}
+            run={async () => act.bid(await wallet.ctx(net), s.key, stableAddr, parsed!)} />
+          <p id="bid-why" className="quiet small">Winning gives the right to run the liquidity for {t.epochs} × {dur(t.epochLength)} and earn {pct(t.managerFeeBps, 0)} of each clean epoch's fees. It never gives custody.</p>
+        </section>
+      ) : (
+        <section className="card">
+          <div className="card-head"><h2>Result</h2><span className="quiet">bidding closed {new Date(t.auctionEnd * 1000).toLocaleString()}</span></div>
+          <p className="quiet">{s.m.manager === zeroAddress
+            ? 'Nobody bid. The treasury can close the mandate and take its inventory back (Settle & claim).'
+            : s.m.breached ? 'The winner breached an epoch: the bond was slashed to the treasury and the manager fired.'
+            : <>The winner runs the liquidity until {new Date(endOf(t) * 1000).toLocaleString()}. Their bond stays locked until the last clean epoch settles, or goes to the treasury on a breach.</>}</p>
+          {s.m.manager !== zeroAddress && !s.m.breached && <a className="btn secondary sm" href={`#/m/${s.id}/manage`}>Open the manager console</a>}
+        </section>
+      )}
 
-      <section className="card">
-        <div className="card-head"><h2>Bids</h2><span className="quiet">outbid bonds are refunded as claimable balances</span></div>
+      <section className="card span">
+        <div className="card-head"><h2>Bids</h2><span className="quiet">an outbid bond is refunded at once, as a claimable balance</span></div>
         {!bids.length ? <p className="quiet">No bids yet.</p> : (
           <ol className="feed">
-            {[...bids].reverse().map((b) => {
-              const who = b.args.bidder as Address, i = bidders.indexOf(who), claimable = owedQ.data?.[i] ?? 0n;
-              const leading = who.toLowerCase() === s.m.manager.toLowerCase() && b.args.amount === s.m.bond;
-              return (
-                <li key={`${b.transactionHash}-${b.logIndex}`}>
-                  <i className={`fdot ${leading ? 'violet' : ''}`} />
-                  <span><Addr a={who} tone={leading ? 'violet' : ''} /> · {fmt(b.args.amount as bigint, stable.decimals)} {stable.symbol} {leading ? <b className="violet">leading</b> : <em>outbid</em>}</span>
-                  <small>{claimable > 0n ? `claimable ${fmt(claimable, stable.decimals)} ${stable.symbol}` : leading ? 'bond locked' : 'refund claimed'}</small>
-                </li>
-              );
-            })}
+            {[...bids].reverse().map((b, i) => (
+              <li key={`${b.transactionHash}-${b.logIndex}`}>
+                <i className={`fdot ${i === 0 ? 'violet' : ''}`} />
+                <span><Addr a={b.args.bidder as Address} tone={i === 0 ? 'violet' : ''} /> · {fmt(b.args.amount as bigint, stable.decimals)} {stable.symbol} {i === 0 ? <b className="violet">{open ? 'leading' : 'won'}</b> : <em>outbid · refunded</em>}</span>
+                <small>block {String(b.blockNumber)} · <TxLink hash={b.transactionHash} /></small>
+              </li>
+            ))}
           </ol>
         )}
+        {bidders.some((_, i) => (owedQ.data?.[i] ?? 0n) > 0n) && (
+          <dl className="ledger">
+            {bidders.map((b, i) => (owedQ.data?.[i] ?? 0n) > 0n && <Row key={b} k={`${short(b)} can claim`} v={`${fmt(owedQ.data![i], stable.decimals)} ${stable.symbol}`} />)}
+          </dl>
+        )}
+        <p className="quiet small">Claimable balances include refunds, returned bonds and pay; each account withdraws its own with claim.</p>
         {wallet.account && (mine.data ?? 0n) > 0n && (
           <div className="claim-box">
             <p>You have <b>{fmt(mine.data!, stable.decimals)} {stable.symbol}</b> claimable.</p>
@@ -367,7 +380,7 @@ function Manage({ s }: { s: Snapshot }) {
   const checks: [boolean, string][] = [
     [s.status === 'active', s.status === 'active' ? 'Mandate is active' : `Mandate is not active (${STATUS[s.status].toLowerCase()})`],
     [isManager, isManager ? 'Connected as the manager' : `Only the manager ${short(s.m.manager)} can sign this`],
-    [gap <= t.maxTickDeviation, `Spot is ${gap} ticks from the TWAP (limit ${t.maxTickDeviation})`],
+    [gap <= t.maxTickDeviation, `Spot is ${gap} tick${gap === 1 ? '' : 's'} from the TWAP (limit ${t.maxTickDeviation})`],
     [lo % ts === 0 && hi % ts === 0 && lo < hi, `Ticks on the ${ts}-tick grid, lower below upper`],
     [lo <= s.twap - t.minHalfWidth && hi >= s.twap + t.minHalfWidth, `Covers TWAP ± ${t.minHalfWidth} ticks (${s.twap - t.minHalfWidth} … ${s.twap + t.minHalfWidth})`],
     [lo < s.spot && s.spot < hi, `Spot tick ${s.spot} strictly inside`],

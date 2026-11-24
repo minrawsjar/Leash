@@ -21,10 +21,14 @@ export function Chart({ samples, price, needLo, needHi, unit }: {
   const last = samples[samples.length - 1];
   // y in price; a token priced in a stable that is currency0 inverts the tick axis, so sort each pair.
   const ranged = samples.filter((s) => s.lo < s.hi); // a closed mandate has no position
-  const ys = samples.flatMap((s) => [price(s.spot), price(s.twap)]).concat(ranged.flatMap((s) => [price(s.lo), price(s.hi)]), price(needLo), price(needHi));
+  // Frame the price action and the must-cover band; a range edge comes into view only if it is close, else the
+  // band runs off the chart (clipped) and the legend gives its bounds.
+  const ys = samples.flatMap((s) => [price(s.spot), price(s.twap)]).concat(price(needLo), price(needHi));
   let [y0, y1] = [Math.min(...ys), Math.max(...ys)];
   const span = y1 - y0 || y1 * 0.02 || 1;
-  [y0, y1] = [y0 - span * 0.08, y1 + span * 0.08];
+  for (const e of ranged.length ? [price(last.lo), price(last.hi)] : []) if (e > y0 - span && e < y1 + span) [y0, y1] = [Math.min(y0, e), Math.max(y1, e)];
+  const pad2 = (y1 - y0 || span) * 0.12;
+  [y0, y1] = [y0 - pad2, y1 + pad2];
   const t0 = samples[0].t, t1 = Math.max(last.t, t0 + 1);
   const X = (t: number) => pad.l + ((t - t0) / (t1 - t0)) * (w - pad.l - pad.r);
   const Y = (p: number) => pad.t + (1 - (p - y0) / (y1 - y0)) * (h - pad.t - pad.b);
@@ -43,7 +47,8 @@ export function Chart({ samples, price, needLo, needHi, unit }: {
     <div ref={box} className="chart">
       <svg width={w} height={h} role="img" aria-label={`Spot ${lbl(price(last.spot))}, TWAP ${lbl(price(last.twap))}, ${last.lo < last.hi ? `manager range ${lbl(rLo)} to ${lbl(rHi)}` : 'no managed position'} ${unit}`}>
         {yTicks.map((v) => <g key={v} className="grid"><line x1={pad.l} x2={w - pad.r} y1={Y(v)} y2={Y(v)} /><text x={w - pad.r + 8} y={Y(v) + 4}>{lbl(v)}</text></g>)}
-        <path className="band" d={band} />
+        <clipPath id="plot"><rect x={pad.l} y={pad.t} width={w - pad.l - pad.r} height={h - pad.t - pad.b} /></clipPath>
+        <path className="band" d={band} clipPath="url(#plot)" />
         <rect className="need" x={pad.l} width={w - pad.l - pad.r} y={Y(nHi)} height={Math.max(1, Y(nLo) - Y(nHi))} />
         <path className="twap" d={line((s) => s.twap)} />
         <path className="spot" d={line((s) => s.spot)} />

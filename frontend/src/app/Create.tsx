@@ -1,7 +1,7 @@
 // Post a mandate (treasury): inventory, the opening position, and all 16 terms, checked before signing.
 import { useState, type ReactNode } from 'react';
-import { erc20Abi, type Address } from 'viem';
-import { client, dur, fmtLiq, fmtNum, leashAbi, short, token, type Terms } from './chain.ts';
+import { erc20Abi, zeroAddress, type Address } from 'viem';
+import { client, dur, fmtLiq, fmtNum, leashAbi, poolId, short, token, type Terms } from './chain.ts';
 import * as act from './actions.ts';
 import { defaultForm, plan, PRESETS, type Form } from './plan.ts';
 import { Act, useApp, usePoll } from './ui.tsx';
@@ -18,14 +18,21 @@ export function Create() {
     const [tok, stb, blk] = await Promise.all([meta(f.token), meta(f.stable), c.getBlock()]);
     const bal = async (t: Address | undefined) => (t && wallet.account ? c.readContract({ address: t, abi: erc20Abi, functionName: 'balanceOf', args: [wallet.account] }) : null);
     const [bTok, bStb] = await Promise.all([bal(tok?.address), bal(stb?.address)]);
-    return { tok, stb, now: Number(blk.timestamp), bTok, bStb };
+    return { tok, stb, now: net.id === 31337 ? Math.max(Number(blk.timestamp), Math.floor(Date.now() / 1000)) : Number(blk.timestamp), bTok, bStb };
   }, 8_000, [net.id, f.token, f.stable, wallet.account]);
 
   const e = env.data;
   const p = plan(f, net.dep.leash, e?.tok ?? null, e?.stb ?? null, e?.now ?? Date.now() / 1000);
-  const exists = usePoll(async () => ('key' in p ? (await client(net).readContract({ address: net.dep.leash, abi: leashAbi, functionName: 'mandate', args: [p.id] }) as { treasury: Address }).treasury : null), 8_000, ['id' in p ? p.id : '']);
+  // One mandate per pool: if this key is taken, find the nearest free tick spacing to offer instead.
+  const taken = usePoll(async () => {
+    if (!('key' in p)) return null;
+    const used = async (ts: number) => ((await client(net).readContract({ address: net.dep.leash, abi: leashAbi, functionName: 'mandate', args: [poolId({ ...p.key, tickSpacing: ts })] })) as { treasury: Address }).treasury !== zeroAddress;
+    if (!(await used(p.key.tickSpacing))) return null;
+    for (const ts of [60, 10, 30, 100, 200, 1, 20, 50, 120]) if (ts !== p.key.tickSpacing && !(await used(ts))) return ts;
+    return 0;
+  }, 8_000, ['id' in p ? p.id : '']);
   const problems = [...p.problems];
-  if (exists.data && exists.data !== '0x0000000000000000000000000000000000000000') problems.push(`A mandate already exists for this pair at tick spacing ${f.tickSpacing} (each pool holds one). Pick another tick spacing.`);
+  if (taken.data != null) problems.push(`A mandate already exists for this pair at tick spacing ${f.tickSpacing} (each pool holds one).`);
   if ('key' in p && e?.tok && e.stb && e.bTok !== null && e.bStb !== null) {
     const [needTok, needStb] = p.terms.stableIs0 ? [p.amount1, p.amount0] : [p.amount0, p.amount1];
     if (e.bTok < needTok) problems.push(`Your wallet holds ${fmtNum(Number(e.bTok) / 10 ** e.tok.decimals)} ${e.tok.symbol}, less than the deposit.`);
@@ -35,7 +42,8 @@ export function Create() {
 
   async function submit() {
     const ctx = await wallet.ctx(net);
-    const now = Number((await ctx.pub.getBlock()).timestamp); // auctionEnd from chain time at signing
+    const blockTs = Number((await ctx.pub.getBlock()).timestamp); // auctionEnd from chain time at signing (anvil: never behind the wall clock)
+    const now = net.id === 31337 ? Math.max(blockTs, Math.floor(Date.now() / 1000)) : blockTs;
     const q = plan(f, net.dep.leash, e!.tok, e!.stb, now);
     if (!('key' in q) || q.problems.length) throw new Error(q.problems[0]);
     const hash = await act.createMandate(ctx, q.key, q.sqrtPriceX96, q.terms, q.amount0, q.amount1, q.initial);
@@ -101,13 +109,14 @@ export function Create() {
 
         <aside className="card summary" aria-label="Review">
           <div className="card-head"><h2>Review</h2><span className="quiet">exactly what is sent</span></div>
-          {'key' in p ? <TermsTable t={p.terms} /> : null}
+          {'key' in p ? <TermsTable t={p.terms} bond={`${f.minBond} ${sym.stb}`} /> : null}
           {'key' in p && <p className="quiet small mono">pool {short(p.id)} · opening tick {p.openTick}</p>}
           <ul className="problems" aria-live="polite">
             {problems.map((x) => <li key={x} className="bad">{x}</li>)}
             {'warnings' in p && p.warnings.map((x) => <li key={x} className="warn">{x}</li>)}
             {!problems.length && <li className="ok">All of createMandate's checks pass.</li>}
           </ul>
+          {!!taken.data && <button type="button" className="btn secondary sm" onClick={() => set('tickSpacing')(taken.data!)}>Use tick spacing {taken.data} (free)</button>}
           <Act label="Approve and post mandate" disabled={problems.length > 0} why={problems.length ? '' : 'Up to three signatures: approve each token (skipped if already enough), then createMandate. It is simulated first.'} run={submit} />
         </aside>
       </div>
@@ -122,10 +131,10 @@ function F({ label, hint, wide, children }: { label: string; hint?: string; wide
   return <label className={`field ${wide ? 'wide' : ''}`}><span>{label}</span>{children}{hint ? <small>{hint}</small> : null}</label>;
 }
 
-function TermsTable({ t }: { t: Terms }) {
+function TermsTable({ t, bond }: { t: Terms; bond: string }) {
   const rows: [string, string][] = [
     ['stableIs0', String(t.stableIs0)], ['maxFee', `${t.maxFee} pips`], ['auctionEnd', new Date(t.auctionEnd * 1000).toLocaleString()],
-    ['epochLength', `${t.epochLength}s`], ['epochs', String(t.epochs)], ['minBond', String(t.minBond)], ['twapWindow', `${t.twapWindow}s`],
+    ['epochLength', `${t.epochLength}s`], ['epochs', String(t.epochs)], ['minBond', `${bond} (${t.minBond})`], ['twapWindow', `${t.twapWindow}s`],
     ['maxTickDeviation', String(t.maxTickDeviation)], ['minLiquidity', fmtLiq(t.minLiquidity)], ['uptimeBps', String(t.uptimeBps)],
     ['managerFeeBps', String(t.managerFeeBps)], ['startStableBps', String(t.startStableBps)], ['endStableBps', String(t.endStableBps)],
     ['minFee', `${t.minFee} pips`], ['minHalfWidth', String(t.minHalfWidth)], ['anchorLiquidity', fmtLiq(t.anchorLiquidity)],

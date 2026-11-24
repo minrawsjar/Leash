@@ -34,6 +34,8 @@ export const NETS: Record<number, Net> = {
 export const viemChain = (n: Net) => defineChain({
   id: n.id, name: n.name, nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
   rpcUrls: { default: { http: [n.rpc] } }, ...(n.explorer ? { blockExplorers: { default: { name: 'Blockscout', url: n.explorer } } } : {}),
+  // Multicall3 is at its usual address on Unichain Sepolia; without it viem's multicall batching quietly does nothing.
+  ...(n.id === 1301 ? { contracts: { multicall3: { address: '0xcA11bde05977b3631167028862bE2a173976CA11' as const } } } : {}),
 });
 const clients = new Map<number, PublicClient>();
 export const client = (n: Net): PublicClient => {

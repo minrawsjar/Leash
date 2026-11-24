@@ -70,6 +70,7 @@ export const DYNAMIC_FEE = 0x800000;
 export const GROW_BPS = 500;
 export const MAX_GROW_GAP = 2;
 export const MIN_ANCHOR_BPS = 1900;
+export const MIN_BOND_BPS = 200; // minBond >= 2% of the deposit's value (ThinBond)
 export const MAX_EPOCHS = 104;
 export const MAX_LP_FEE = 1_000_000;
 
@@ -228,7 +229,7 @@ export function describe(l: LeashLog, s: Snapshot): [string, string] {
     case 'FeeSet': return ['', `Fee set to ${feePct(Number(a.fee))}`];
     case 'EpochSettled': return a.clean
       ? ['mint', `Epoch ${Number(a.epoch) + 1} clean: manager paid ${fmt(t.stableIs0 ? a.pay1 : a.pay0, token.decimals, 4)} ${token.symbol} + ${fmt(t.stableIs0 ? a.pay0 : a.pay1, stable.decimals, 4)} ${stable.symbol}`]
-      : ['rose', `Epoch ${Number(a.epoch) + 1} breached: ${fmt(a.slashed, stable.decimals)} ${stable.symbol} bond slashed to the treasury`];
+      : ['rose', `Epoch ${Number(a.epoch) + 1} missed its uptime: ${fmt(a.slashed, stable.decimals)} ${stable.symbol} of the bond slashed to the treasury`];
     case 'Closed': return ['', 'Closed: inventory and fees returned to the treasury'];
     default: return ['', l.eventName];
   }

@@ -136,7 +136,7 @@ Accounts, all from anvil's default mnemonic:
    | `maxFee` / `minFee` | 10,000 (1%) / 500 (0.05%) |
    | `auctionEnd` | deploy time + 10 minutes |
    | `epochLength` x `epochs` | 1 hour x 3 |
-   | `minBond` | 1,000 mUSDC |
+   | `minBond` | 10,000 mUSDC (2.5% of the deposit value; `MIN_BOND_BPS` requires 2%) |
    | `twapWindow` | 120 s |
    | `maxTickDeviation` / `minHalfWidth` | 100 / 200 ticks |
    | `minLiquidity` | half the opening position's liquidity |
@@ -145,7 +145,7 @@ Accounts, all from anvil's default mnemonic:
    | `startStableBps` -> `endStableBps` | 6,000 -> 8,000 |
    | `anchorLiquidity` | the full-range fifth from step 5 |
 
-7. As #1: approves and bids 1,000 mUSDC. As #2: bids 1,500 mUSDC, which outbids #1; #1's bond becomes claimable through `owed` / `claim`.
+7. As #1: approves and bids 10,000 mUSDC. As #2: bids 12,000 mUSDC, which outbids #1; #1's bond becomes claimable through `owed` / `claim`.
 8. As #3: approves the swap router and makes three exact-input swaps (1,000 mUSDC in, 300 TKN in, 500 mUSDC in), so the oracle has observations and the position has earned fees.
 
 Then `writeDeployment()` writes `deployments/31337.json`: `chainId`, `block` (the block the script started at), `poolManager`, `swapRouter`, `leash`, `tkn`, `usdc`, a `pool` object (`currency0`, `currency1`, `fee`, `tickSpacing`, `hooks`, `id`) and an `accounts` object (`treasury`, `manager1`, `manager2`, `swapper`). The auction is still open when the script ends.

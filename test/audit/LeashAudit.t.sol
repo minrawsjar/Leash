@@ -326,6 +326,17 @@ contract LeashAuditTest is Test, Deployers {
         }
     }
 
+    /// The dynamic fee charges every swap 10 pips per tick of |spot - TWAP| beyond 10 ticks, so the drag (whose
+    /// pushes start further and further off the dragging TWAP) pays more. With the flat fee (before this change),
+    /// dragging by 600 ticks cost 16.58 tokens (test_C2_strongestLegalDragThenExtract's log, revision 2e9362f).
+    function test_dynamicFee_dragPaysMore() public {
+        (int256 cost, int256 gain) = _c2(600);
+        emit log_named_decimal_int("cost to drag the TWAP by 600 ticks, with the surcharge", cost, 18);
+        emit log_named_decimal_int("extracted", gain, 18);
+        assertGt(cost, 16.58e18, "dearer than with a flat fee");
+        assertGt(cost, gain);
+    }
+
     // ================================================================ H-1
 
     /// H-1, fixed: the original one-block spikes can't reach MAX_TICK through the anchor, and a spike as far as

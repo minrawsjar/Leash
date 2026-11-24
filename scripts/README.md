@@ -46,8 +46,8 @@ Accounts (anvil's default mnemonic `test test test test test test test test test
 | Index | Role |
 |---|---|
 | #0 | Treasury; deploys everything and posts the mandate |
-| #1 | Manager, bid 1,000 mUSDC, outbid (bond claimable) |
-| #2 | Manager, bid 1,500 mUSDC, leads the auction |
+| #1 | Manager, bid 10,000 mUSDC, outbid (bond claimable) |
+| #2 | Manager, bid 12,000 mUSDC, leads the auction |
 | #3 | Swapper; made three small trades |
 | #4 | Keeper (`keeper.sh` default signer) |
 

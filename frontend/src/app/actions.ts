@@ -63,6 +63,7 @@ const WORDS: Record<string, string> = {
   NotLeashPool: 'This is not a valid Leash pool: the key must use the Leash hook, the dynamic-fee flag and two deployed ERC-20 tokens.',
   BadTerms: 'The mandate terms are out of bounds (see the checks beside the form).',
   ThinAnchor: 'The full-range anchor is too thin: it must hold at least ~19% of the deposit\'s value at the opening price.',
+  ThinBond: 'The minimum bond is too small: it must be at least 2% of the deposit\'s value at the opening price.',
   NoMandate: 'There is no mandate for this pool.',
   MandateClosed: 'This mandate is closed.',
   AuctionClosed: 'Bidding has closed for this mandate.',
@@ -78,7 +79,7 @@ const WORDS: Record<string, string> = {
   SpotOffTwap: 'The pool price is too far from its TWAP. Re-ranging needs spot within maxTickDeviation ticks of the TWAP; growing the position needs it within 2 ticks. Wait for the price to settle.',
   SameBlock: 'Only one rebalance per block, and growth is refused once the price has moved in this block. Try again in the next block.',
   GrowTooFast: 'Growth is capped: at most +5% liquidity per rebalance, and only once per TWAP window.',
-  Breached: 'This mandate was breached: the bond was slashed and the manager fired.',
+  Breached: 'The manager was fired: an epoch was out of compliance for twice its allowance and the whole bond went to the treasury.',
   BadEpoch: 'Epochs settle in order: that is not the next unsettled epoch.',
   NotPoolManager: 'Only the Uniswap PoolManager can call this.',
   // v4-core

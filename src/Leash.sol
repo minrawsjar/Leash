@@ -19,6 +19,7 @@ import {BeforeSwapDelta, BeforeSwapDeltaLibrary} from "v4-core/types/BeforeSwapD
 import {ModifyLiquidityParams, SwapParams} from "v4-core/types/PoolOperation.sol";
 import {ERC20} from "solmate/src/tokens/ERC20.sol";
 import {SafeTransferLib} from "solmate/src/utils/SafeTransferLib.sol";
+import {LeashOracle, Oracle, Obs} from "./LeashOracle.sol";
 
 struct Terms {
     bool stableIs0; // which pool currency is the stablecoin; bonds are paid in it
@@ -59,7 +60,7 @@ struct Mandate {
     uint40 lastCheck; // compliance is accounted up to here
     uint16 settled; // epochs settled so far; settlement goes in order
     bool lastOk; // compliant at the last checkpoint or rebalance; starts true (see createMandate)
-    bool breached; // an epoch missed its uptime: bond slashed, manager fired
+    bool breached; // fired: an epoch was out for twice its allowance, the whole bond went to the treasury
     bool closed;
     bool swept; // fees earned before the manager's first epoch went to the treasury
     uint40 lastRebalance; // timestamp of the last rebalance: at most one per block
@@ -81,21 +82,7 @@ struct EpochRecord {
     bool clean;
 }
 
-/// One observation per block with a swap: the tick in force since the previous one, and the running sum.
-struct Obs {
-    uint32 time;
-    int24 tick;
-    int56 tickCumulative;
-}
-
-// ponytail: fixed 1024 observations. A pool swapped every block on 1s blocks holds ~17 min of history, less than
-// a 30-min window, and the TWAP silently shortens to what is held. Upgrade: v3-style growable cardinality.
-uint256 constant OBS = 1024;
 uint256 constant BPS = 10_000;
-// The oracle's recorded tick moves at most 50 ticks (~0.5%) per second from the previous observation's. That follows
-// any genuine market (a 30% crash is reflected in ~1 minute, a full window still converges to the new price) but a
-// price parked anywhere for one 12s block moves the recorded tick at most 600 ticks, and a 30-minute TWAP at most 4.
-int256 constant MAX_MOVE = 50;
 // The managed position may grow only with spot within 2 ticks (0.02%) of the TWAP. Re-placing L at spot d ticks off
 // fair loses the treasury at most ~L(d/20000)^2 when the price returns, while the trader moving it back pays
 // ~L(d/20000) times the fee: at d <= 2 that's a loss for the trader at any fee >= 0.01%.
@@ -112,13 +99,15 @@ bytes32 constant ANCHOR = bytes32(uint256(1)); // salt of the full-range anchor;
 // every unsettled epoch (~80k each). 104 (two years of weekly epochs) keeps both under the 2^24 per-transaction gas
 // cap (EIP-7825). Upgrade: checkpoint and settle in bounded chunks.
 uint256 constant MAX_EPOCHS = 104;
-
-struct Oracle {
-    uint16 index; // newest
-    uint16 count;
-    int24 open; // spot tick before the first swap of the newest observation's block
-    Obs[OBS] obs;
-}
+// Swap fee surcharge: +10 pips (0.001%) per tick of |spot - TWAP| beyond a 10-tick free band, up to maxFee. At 100
+// ticks off (1%) that's +0.09%: a tenth of the deviation, so arbitrage back to fair still pays, while pushing or
+// dragging the price costs more. Within 10 ticks (normal noise) traders pay the manager's fee.
+int256 constant FEE_FREE_TICKS = 10;
+uint256 constant FEE_PIPS_PER_TICK = 10;
+// The smallest legal minBond: 2% of the deposit's value at the opening price.
+uint256 constant MIN_BOND_BPS = 200;
+// Whoever settles an epoch (other than the treasury) earns 10 bps of the treasury's share of its fees.
+uint256 constant KEEPER_BPS = 10;
 
 /// @notice Treasury market-making mandates. The hook owns all liquidity in its pools;
 ///         the manager can only move it and set the fee, never withdraw it.
@@ -146,6 +135,7 @@ contract Leash is BaseHook, IUnlockCallback {
     error SameBlock();
     error GrowTooFast();
     error ThinAnchor();
+    error ThinBond();
     error Breached();
     error BadEpoch();
 
@@ -194,10 +184,21 @@ contract Leash is BaseHook, IUnlockCallback {
         returns (bytes4, BeforeSwapDelta, uint24)
     {
         PoolId id = key.toId();
-        (, int24 tick,,) = poolManager.getSlot0(id);
-        _observe(_oracles[id], tick);
-        _checkpoint(key, _mandates[id]);
-        return (this.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, 0);
+        (, int24 tick,, uint24 fee) = poolManager.getSlot0(id);
+        Oracle storage o = _oracles[id];
+        LeashOracle.observe(o, tick);
+        Mandate storage m = _mandates[id];
+        _checkpoint(key, m);
+        // This swap's fee: the manager's fee (slot0's stored lpFee, set by setFee in [minFee, maxFee]) plus
+        // FEE_PIPS_PER_TICK for every tick spot sits beyond FEE_FREE_TICKS from the TWAP, capped at maxFee. Pushing
+        // the price off the TWAP, or trading while it is off, pays the treasury more; at the TWAP it is the set fee.
+        int256 gap = int256(tick) - LeashOracle.twap(o, tick, m.terms.twapWindow);
+        if (gap < 0) gap = -gap;
+        if (gap > FEE_FREE_TICKS) {
+            uint256 f = fee + uint256(gap - FEE_FREE_TICKS) * FEE_PIPS_PER_TICK;
+            fee = f > m.terms.maxFee ? m.terms.maxFee : uint24(f);
+        }
+        return (this.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, fee | LPFeeLibrary.OVERRIDE_FEE_FLAG);
     }
 
     // ---------------------------------------------------------------- views
@@ -281,12 +282,12 @@ contract Leash is BaseHook, IUnlockCallback {
         ModifyLiquidityParams[2] memory ops;
         ops[0] = _anchorOp(key, int256(uint256(t.anchorLiquidity)));
         _modify(key, m, ops);
-        _checkAnchor(key, sqrtPriceX96, t.anchorLiquidity, amount0, amount1);
+        _checkCover(key, sqrtPriceX96, t, amount0, amount1);
         emit MandateCreated(id, msg.sender, key, amount0, amount1);
     }
 
     /// @notice Ends the mandate: pulls the liquidity back and returns all inventory to the treasury. Open once the
-    ///         auction ends with no bids, as soon as the manager breaches, or at the end, after settling every
+    ///         auction ends with no bids, as soon as the manager is fired, or at the end, after settling every
     ///         remaining epoch here so a clean manager is always paid.
     function close(PoolKey calldata key) external {
         Mandate storage m = _live(key);
@@ -301,7 +302,7 @@ contract Leash is BaseHook, IUnlockCallback {
         ops[1] = _anchorOp(key, -int256(uint256(m.terms.anchorLiquidity)));
         (m.tickLower, m.tickUpper, m.liquidity) = (0, 0, 0);
         _modify(key, m, ops);
-        if (hired) owed[m.manager][_stable(key, m)] += m.bond; // zero if slashed
+        if (hired) owed[m.manager][_stable(key, m)] += m.bond; // what partial slashes left; zero if fired
         m.bond = 0;
 
         (uint256 a0, uint256 a1) = (m.idle0 + m.fees0, m.idle1 + m.fees1);
@@ -389,7 +390,9 @@ contract Leash is BaseHook, IUnlockCallback {
     }
 
     /// @notice Judges a finished epoch, in order. Clean: the manager earns managerFeeBps of its LP fees.
-    ///         Missed uptime: the whole bond goes to the treasury and the manager is fired.
+    ///         Missed uptime: part of the bond goes to the treasury, in proportion to the time out beyond the
+    ///         allowance; at twice the allowance the whole bond goes and the manager is fired. The caller (unless
+    ///         the treasury) earns KEEPER_BPS of the treasury's share of the epoch's fees.
     function settle(PoolKey calldata key, uint256 epoch) external {
         Mandate storage m = _live(key);
         if (m.manager == address(0)) revert NotActive();
@@ -427,18 +430,35 @@ contract Leash is BaseHook, IUnlockCallback {
             owed[m.manager][key.currency1] += pay1;
             records[m.manager].clean++;
         } else {
-            (slashed, m.breached) = (m.bond, true);
+            // Partial slash: out-of-compliance time beyond the allowance, as a share of the allowance (both x BPS),
+            // takes that share of the bond. Out for twice the allowance (or any out with none allowed) takes all of
+            // it and fires the manager. ponytail: the share is of the bond left, so repeated misses shrink it
+            // geometrically; store the winning bond and slash shares of that if repeat offenders matter.
+            uint256 allowed = (BPS - m.terms.uptimeBps) * (uint256(r.inSecs) + r.outSecs);
+            uint256 over = uint256(r.outSecs) * BPS - allowed; // > 0: not clean means out * BPS > allowed
+            m.breached = over >= allowed;
+            slashed = m.breached ? m.bond : m.bond * over / allowed;
+            m.bond -= slashed;
+            owed[m.treasury][_stable(key, m)] += slashed;
             records[m.manager].breached++;
         }
-        // A breach sends the bond to the treasury. The last clean epoch frees it to the manager, so a clean
-        // manager never depends on the treasury closing.
-        if (!r.clean || e + 1 == m.terms.epochs) {
-            owed[r.clean ? m.manager : m.treasury][_stable(key, m)] += m.bond;
+        // The last epoch, unless the manager was fired, frees what is left of the bond to the manager, so it never
+        // depends on the treasury closing.
+        if (e + 1 == m.terms.epochs && !m.breached) {
+            owed[m.manager][_stable(key, m)] += m.bond;
             m.bond = 0;
         }
-        // The treasury keeps the rest of the fees as inventory.
+        // The treasury keeps the rest of the fees as inventory, less a keeper bounty for whoever settled (not the
+        // treasury itself, which includes close()). Paid once per epoch, from the treasury's share only.
         (m.fees0, m.fees1) = (m.fees0 - fees0, m.fees1 - fees1);
-        (m.idle0, m.idle1) = (m.idle0 + fees0 - pay0, m.idle1 + fees1 - pay1);
+        (fees0, fees1) = (fees0 - pay0, fees1 - pay1);
+        if (msg.sender != m.treasury) {
+            (uint256 k0, uint256 k1) = (fees0 * KEEPER_BPS / BPS, fees1 * KEEPER_BPS / BPS);
+            owed[msg.sender][key.currency0] += k0;
+            owed[msg.sender][key.currency1] += k1;
+            (fees0, fees1) = (fees0 - k0, fees1 - k1);
+        }
+        (m.idle0, m.idle1) = (m.idle0 + fees0, m.idle1 + fees1);
         emit EpochSettled(id, e, r.clean, pay0, pay1, slashed);
     }
 
@@ -517,14 +537,18 @@ contract Leash is BaseHook, IUnlockCallback {
         return v0 + a1 == 0 ? 0 : uint16(FullMath.mulDiv(m.terms.stableIs0 ? v0 : a1, BPS, v0 + a1));
     }
 
-    /// The anchor must hold at least MIN_ANCHOR_BPS of the deposit's value at the opening price.
-    function _checkAnchor(PoolKey calldata key, uint160 p, uint128 liq, uint256 amount0, uint256 amount1)
+    /// The anchor must hold at least MIN_ANCHOR_BPS, and minBond at least MIN_BOND_BPS, of the deposit's value at
+    /// the opening price (all in currency1).
+    function _checkCover(PoolKey calldata key, uint160 p, Terms calldata t, uint256 amount0, uint256 amount1)
         internal
         pure
     {
-        (uint256 a0, uint256 a1) =
-            _amounts(p, TickMath.minUsableTick(key.tickSpacing), TickMath.maxUsableTick(key.tickSpacing), liq);
-        if (_value(a0, a1, p) * BPS < _value(amount0, amount1, p) * MIN_ANCHOR_BPS) revert ThinAnchor();
+        (uint256 a0, uint256 a1) = _amounts(
+            p, TickMath.minUsableTick(key.tickSpacing), TickMath.maxUsableTick(key.tickSpacing), t.anchorLiquidity
+        );
+        uint256 v = _value(amount0, amount1, p);
+        if (_value(a0, a1, p) * BPS < v * MIN_ANCHOR_BPS) revert ThinAnchor();
+        if ((t.stableIs0 ? _value(t.minBond, 0, p) : t.minBond) * BPS < v * MIN_BOND_BPS) revert ThinBond();
     }
 
     /// a0 + a1 valued in currency1 at sqrt price p.
@@ -547,68 +571,13 @@ contract Leash is BaseHook, IUnlockCallback {
         return b >= a ? a + (b - a) * t / (end - start) : a - (a - b) * t / (end - start);
     }
 
+    function _twap(PoolId id, uint32 window) internal view returns (int24) {
+        (, int24 spot,,) = poolManager.getSlot0(id);
+        return LeashOracle.twap(_oracles[id], spot, window);
+    }
+
     function _epochAt(Mandate storage m) internal view returns (uint256) {
         return block.timestamp < m.terms.auctionEnd ? 0 : (block.timestamp - m.terms.auctionEnd) / m.terms.epochLength;
-    }
-
-    // ---------------------------------------------------------------- oracle
-
-    /// Called before every swap with the pre-swap tick, at most once per block, so a price pushed and
-    /// returned within one block never enters the TWAP.
-    function _observe(Oracle storage o, int24 tick) internal {
-        Obs memory last = o.obs[o.index];
-        if (last.time == block.timestamp) return;
-        uint256 dt = block.timestamp - last.time;
-        int24 r = _truncate(last.tick, tick, dt);
-        uint16 i = uint16((o.index + 1) % OBS);
-        o.obs[i] = Obs(uint32(block.timestamp), r, last.tickCumulative + int56(r) * int56(uint56(dt)));
-        (o.index, o.open) = (i, tick);
-        if (o.count < OBS) o.count++;
-    }
-
-    /// `to`, moved at most MAX_MOVE ticks per second of `dt` away from `from`. dt needs no cap beyond overflow
-    /// safety (int256): a long dt means the price really sat there with nobody trading against it.
-    function _truncate(int24 from, int24 to, uint256 dt) internal pure returns (int24) {
-        int256 cap = MAX_MOVE * int256(dt);
-        if (to > from + cap) return int24(from + cap);
-        if (to < from - cap) return int24(from - cap);
-        return to;
-    }
-
-    /// Time-weighted tick over the last `window` seconds, or over all history held if that is shorter.
-    function _twap(PoolId id, uint32 window) internal view returns (int24 tick) {
-        Oracle storage o = _oracles[id];
-        (, int24 spot,,) = poolManager.getSlot0(id);
-        Obs memory last = o.obs[o.index];
-        // Spot since the last observation, truncated exactly as the next observation will record it, so the view
-        // can't be pushed either.
-        spot = _truncate(last.tick, spot, block.timestamp - last.time);
-        uint256 oldest = o.count < OBS ? 0 : (o.index + 1) % OBS;
-        Obs memory first = o.obs[oldest];
-
-        uint256 target = block.timestamp > window ? block.timestamp - window : 0;
-        if (target < first.time) target = first.time;
-        if (target == block.timestamp) return first.tick; // all history is this block: the tick it opened at
-
-        int56 cumThen;
-        if (target >= last.time) {
-            cumThen = last.tickCumulative + int56(spot) * int56(uint56(target - last.time));
-        } else {
-            uint256 lo; // binary search: obs[lo].time <= target < obs[hi].time
-            uint256 hi = o.count - 1;
-            while (hi - lo > 1) {
-                uint256 mid = (lo + hi) / 2;
-                if (o.obs[(oldest + mid) % OBS].time <= target) lo = mid;
-                else hi = mid;
-            }
-            Obs memory a = o.obs[(oldest + lo) % OBS];
-            cumThen = a.tickCumulative + int56(o.obs[(oldest + hi) % OBS].tick) * int56(uint56(target - a.time));
-        }
-        // Extrapolate to now with the spot tick, as v3 does: any swap this block already wrote an observation at now.
-        int56 cumNow = last.tickCumulative + int56(spot) * int56(uint56(block.timestamp - last.time));
-        int56 dt = int56(uint56(block.timestamp - target));
-        tick = int24((cumNow - cumThen) / dt);
-        if (cumNow < cumThen && (cumNow - cumThen) % dt != 0) tick--; // round toward negative infinity
     }
 
     // ---------------------------------------------------------------- liquidity

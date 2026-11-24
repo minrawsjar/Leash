@@ -3,6 +3,9 @@ pragma solidity ^0.8.26;
 
 // Unichain Sepolia (forge loads PRIVATE_KEY from .env, see .env.example):
 //   forge script script/DeployLeash.s.sol --rpc-url unichain_sepolia --broadcast
+// Leash links the external library LeashOracle. forge deploys it first, through the same CREATE2 factory (salt 0,
+// so at the same address on every chain), and links its address into Leash's init code before the hook address
+// is mined below. Verify Leash with --libraries src/LeashOracle.sol:LeashOracle:<that address>.
 
 import {Script} from "forge-std/Script.sol";
 import {console2} from "forge-std/console2.sol";

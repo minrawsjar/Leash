@@ -493,7 +493,7 @@ function Settle({ s, records }: { s: Snapshot; records: EpochRecord[] }) {
 
       <section className="card">
         <div className="card-head"><h2>Settle epoch {Math.min(next + 1, t.epochs)}</h2><span className="quiet">anyone · in order</span></div>
-        {r && next < t.epochs && <p className="quiet">So far {dur(r.inSecs)} in, {dur(r.outSecs)} out: {r.inSecs + r.outSecs ? pct((r.inSecs * 10_000) / (r.inSecs + r.outSecs)) : '–'} uptime against {pct(t.uptimeBps, 0)} needed. Clean pays the manager {pct(t.managerFeeBps, 0)} of the epoch's fees; a miss slashes the whole bond to the treasury.</p>}
+        {r && next < t.epochs && <p className="quiet">So far {dur(r.inSecs)} in, {dur(r.outSecs)} out: {r.inSecs + r.outSecs ? pct((r.inSecs * 10_000) / (r.inSecs + r.outSecs)) : '–'} uptime against {pct(t.uptimeBps, 0)} needed. Clean pays the manager {pct(t.managerFeeBps, 0)} of the epoch's fees; a miss slashes the bond in proportion to the time out beyond the allowance, and twice the allowance takes all of it and fires the manager. Whoever settles (other than the treasury) earns 0.1% of the treasury's share of the fees.</p>}
         <Act label={`Settle epoch ${next + 1}`} disabled={!!settleWhy} why={settleWhy} run={async () => act.settle(await wallet.ctx(net), s.key, next)} />
       </section>
 

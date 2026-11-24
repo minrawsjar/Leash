@@ -1,4 +1,4 @@
-# Leash landing site: working brief (after round 3)
+# Leash landing site: working brief (after round 4)
 
 ## Goal
 One page at `/` that makes a treasury lead or a market maker understand Leash in one scroll, at Opaque's
@@ -59,6 +59,10 @@ src/Leash.sol. Abstract metaphor only: a price line, a TWAP band, liquidity bars
   Live hero now opens at loop second 3 (calm, in range) instead of mid-recovery from the last breach;
   facts align their numbers at the top; tour tile art enlarged.
 
-## Open problems (next round)
-1. index.html: favicon from the mark, description that matches the page.
-2. One last full pass at 1440 and 390 over every section for type rhythm and leftovers.
+- R4: favicon from the mark, meta description matching the page; full pass at 1440 and 390, build clean.
+
+## Open problems (for whoever picks this up)
+1. The story's "checks" scene drops the one-line explanations on phones (too narrow); the labels carry it.
+2. The hero canvas redraws every frame while visible (~60fps of 2D canvas). Cheap enough on a laptop;
+   throttle to 30fps if phones run warm.
+3. Fig. 1 (AttackChart) is static SVG; it could draw itself in on reveal.

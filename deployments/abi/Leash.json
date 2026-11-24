@@ -1106,6 +1106,21 @@
             "name": "endStableBps",
             "type": "uint16",
             "internalType": "uint16"
+          },
+          {
+            "name": "minFee",
+            "type": "uint24",
+            "internalType": "uint24"
+          },
+          {
+            "name": "minHalfWidth",
+            "type": "uint24",
+            "internalType": "uint24"
+          },
+          {
+            "name": "anchorLiquidity",
+            "type": "uint128",
+            "internalType": "uint128"
           }
         ]
       },
@@ -1435,6 +1450,11 @@
             "internalType": "bool"
           },
           {
+            "name": "lastRebalance",
+            "type": "uint40",
+            "internalType": "uint40"
+          },
+          {
             "name": "terms",
             "type": "tuple",
             "internalType": "struct Terms",
@@ -1503,6 +1523,21 @@
                 "name": "endStableBps",
                 "type": "uint16",
                 "internalType": "uint16"
+              },
+              {
+                "name": "minFee",
+                "type": "uint24",
+                "internalType": "uint24"
+              },
+              {
+                "name": "minHalfWidth",
+                "type": "uint24",
+                "internalType": "uint24"
+              },
+              {
+                "name": "anchorLiquidity",
+                "type": "uint128",
+                "internalType": "uint128"
               }
             ]
           }
@@ -2004,6 +2039,11 @@
   },
   {
     "type": "error",
+    "name": "FeeTooLow",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "HookNotImplemented",
     "inputs": []
   },
@@ -2060,6 +2100,11 @@
   {
     "type": "error",
     "name": "RangeMissesTwap",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "SameBlock",
     "inputs": []
   },
   {

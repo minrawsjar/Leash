@@ -1,4 +1,5 @@
 // The Leash dApp at /app. Hash routes: #/ mandates, #/create, #/m/<poolId>[/<tab>].
+import { Mark } from '../Mark';
 import { useEffect, useState } from 'react';
 import type { Hex } from 'viem';
 import { NETS, short, type Net } from './chain.ts';
@@ -41,7 +42,7 @@ export function App() {
     <AppCtx.Provider value={{ net, wallet, bump: () => setTick((t) => t + 1) }}>
       <div className="lx">
         <header className="lx-bar">
-          <a href="#/" className="lx-mark" aria-label="Leash mandates"><span className="lx-ring" aria-hidden />Leash</a>
+          <a href="#/" className="lx-mark" aria-label="Leash mandates"><Mark size={28} />Leash</a>
           <nav className="lx-nav" aria-label="App">
             <a href="#/" aria-current={route.length === 0 ? 'page' : undefined}>Mandates</a>
             <a href="#/create" aria-current={route[0] === 'create' ? 'page' : undefined}>Post a mandate</a>

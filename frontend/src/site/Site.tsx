@@ -1,3 +1,4 @@
+import { Mark } from '../Mark';
 import { useEffect, useRef, type CSSProperties, type JSX } from 'react';
 import { AttackChart } from '../AttackChart';
 import { mount } from './motion';
@@ -12,14 +13,6 @@ const SCAN = `https://unichain-sepolia.blockscout.com/address/${HOOK}`;
 
 const Chevron = () => (
   <svg viewBox="0 0 10 6" aria-hidden="true"><path d="M1 1l4 4 4-4" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
-);
-/** The mark: a price line held between the two edges of a range. */
-export const Mark = ({ size = 28 }: { size?: number }) => (
-  <svg className="mark" width={size} height={size} viewBox="0 0 28 28" aria-hidden="true">
-    <rect x="1" y="1" width="26" height="26" rx="8" fill="var(--mint)" />
-    <path d="M6 9.5h16M6 18.5h16" stroke="var(--ink)" strokeWidth="1.6" strokeLinecap="round" opacity="0.45" />
-    <path d="M5.5 15.5l3.4-3 3.2 2.4 3.6-4 3.1 3 3.7-2.6" fill="none" stroke="var(--ink)" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
-  </svg>
 );
 const Arrow = () => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" /></svg>

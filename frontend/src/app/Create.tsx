@@ -1,5 +1,5 @@
 // Post a mandate (treasury): inventory, the opening position, and all 16 terms, checked before signing.
-import { useState, type ReactNode } from 'react';
+import { useRef, useState, type ReactNode } from 'react';
 import { erc20Abi, zeroAddress, type Address } from 'viem';
 import { client, dur, fmtLiq, fmtNum, leashAbi, poolId, short, token, type Terms } from './chain.ts';
 import * as act from './actions.ts';
@@ -51,6 +51,7 @@ export function Create() {
     return hash;
   }
 
+  const review = useRef<HTMLElement>(null);
   const num = (k: keyof Form) => (v: string) => set(k)(Number(v) as never);
   return (
     <>
@@ -66,6 +67,9 @@ export function Create() {
         ))}
       </div>
 
+      <button type="button" className={`create-status ${problems.length ? "bad" : "ok"}`} onClick={() => review.current?.scrollIntoView({ behavior: "smooth" })}>
+        {problems.length ? `${problems.length} thing${problems.length > 1 ? "s" : ""} to fix before posting · review` : "Ready to post · review"}
+      </button>
       <div className="create">
         <form className="create-form" onSubmit={(ev) => ev.preventDefault()}>
           <Group title="Inventory" note="What you deposit. Leash holds it; it only ever moves between the hook and the pool until you close.">
@@ -107,7 +111,7 @@ export function Create() {
           </Group>
         </form>
 
-        <aside className="card summary" aria-label="Review">
+        <aside className="card summary" aria-label="Review" ref={review}>
           <div className="card-head"><h2>Review</h2><span className="quiet">exactly what is sent</span></div>
           {'key' in p ? <TermsTable t={p.terms} bond={`${f.minBond} ${sym.stb}`} /> : null}
           {'key' in p && <p className="quiet small mono">pool {short(p.id)} · opening tick {p.openTick}</p>}

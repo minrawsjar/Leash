@@ -1,34 +1,35 @@
-# Leash dApp brief (round 2)
+# Leash dApp brief (round 3)
 
 The app at `/app`: every Leash mandate, live, and every write a treasury, manager or keeper makes.
 
 ## Screens (hash routes)
 - `#/` mandates index: MandateCreated logs → snapshot per mandate (status, pair, bond, epoch, 3 compliance dots).
-- `#/m/<poolId>` dashboard: stats, live chart, compliance + glide bar, ledger, epoch timeline, activity, terms.
-- `#/m/<id>/auction`: open → bid form; closed → result card. Bid history newest first; claimable balances listed
-  separately (owed mixes refunds, returned bonds and pay, so never pin it to one bid row).
-- `#/m/<id>/manage`: range picker around the TWAP, every rebalance guard as a live check, setFee.
+- `#/m/<poolId>` dashboard: stats (spot from sqrtPriceX96), live chart, compliance + glide bar, ledger, epochs,
+  activity, terms.
+- `#/m/<id>/auction`: open → bid form ("Leader + 1" preset); closed → result card. Bid history; claimable balances
+  listed separately and labelled per account across all mandates (owed is not per mandate).
+- `#/m/<id>/manage`: range picker around the TWAP, size as % of the current position (Floor / Keep / +5% pin exact
+  bigints), every rebalance guard as a live check, setFee.
 - `#/m/<id>/settle`: checkpoint, settle next epoch, close (treasury), claim, track records.
-- `#/create`: all 16 Terms, presets, checks mirrored in `plan.ts`, review of the exact args, free-tick-spacing offer.
+- `#/create`: all 16 Terms, presets, checks mirrored in `plan.ts`, exact-args review, free-tick-spacing offer, and on
+  narrow screens a sticky "N things to fix · review" bar that scrolls to the review.
 
-## Data flow
-- `chain.ts` reads; `actions.ts` writes (simulate → write → wait, `explain()` for reverts); `plan.ts` create math;
-  `verify.ts` drives every write on a fresh local chain via the same functions (31 checks, all pass).
-- slot0 via `PoolManager.extsload` (pools slot 6), with `blockNumber` for chart backfill.
-- Logs: anvil getLogs; Unichain Sepolia via Blockscout (RPC caps getLogs at 1000 blocks). Verified: empty state renders.
+## Verification
+- `verify.ts` (node, fresh local.sh): 31 checks through actions.ts/plan.ts — outbid/refund/claim, create (and thin
+  anchor, duplicate pool refused), every rebalance revert decoded, setFee bounds, settle order, close, claim.
+- In-browser: CDP script injects an EIP-1193 shim forwarding to anvil (unlocked dev accounts) and clicks real
+  buttons: Rebalance (manager), Use free spacing + Approve and post mandate (treasury), Leader+1 + Approve and bid
+  (manager #2), Checkpoint + Claim. Each confirmed with `cast call`.
 
 ## Rules learned
 - anvil only mines on demand: local "now" = max(last block ts, wall clock), in snapshot AND in create's auctionEnd.
-- Chart frames price action + the must-cover band; the manager's range is a clipped background band. Framing on
-  the full range squashed the lines flat.
-- Disabled buttons must look disabled (raised grey), not a dimmed mint that reads as enabled.
-- Checks: wrap text in one span, or inline code pieces become flex items and wrap per word on phones.
-- Phone screenshots: headless iframe + virtual time never finishes loading; use the CDP script (scratchpad cdp.mjs,
-  Emulation.setDeviceMetricsOverride 390) with a real wait.
-- Numbers cross-checked with `cast call`: twapTick, compliance stableBps 5306, epochRecord(0), owed, idle — all match.
+- owed[account][currency] is global to the hook: never present it as one mandate's refund.
+- "Next bid from X" with X = bond + 1 wei renders as the bond itself; say "must exceed X" instead.
+- Spot from the tick is floored (2 shows as 1.9998); use sqrtPriceX96 for the headline number.
+- A chart with one sample draws nothing; pad it to a flat line.
+- Phone screenshots: use CDP Emulation (390px), not an iframe under virtual time.
 
-## Next fixes (round 3)
-- Manager console: liquidity as "% of current" with the raw value secondary; picker labels collide with the band.
-- Create on phone: the review/problems sit below a long form — add a sticky one-line status near the top.
-- Activity feed: block numbers only; add relative time.
-- Re-run verify.ts after UI changes (needs a fresh local.sh).
+## Next fixes (round 4)
+- Activity: relative times (needs block timestamps; batch getBlock for the visible rows only).
+- Settle tab when the mandate is unhired/ended: lead with the one action that matters (close).
+- Final pass: keyboard focus order, aria on tabs, 390px for auction and settle.

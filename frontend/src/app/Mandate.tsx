@@ -109,7 +109,7 @@ function Dashboard({ s, samples, records, logs }: { s: Snapshot; samples: Sample
   return (
     <div className="grid">
       <section className="stats span" aria-label="Now">
-        <Stat label={`Spot · ${stable.symbol} per ${token.symbol}`}><Ticker value={price(s.spot)} format={fmtPrice} /></Stat>
+        <Stat label={`Spot · ${stable.symbol} per ${token.symbol}`}><Ticker value={spotPrice(s)} format={fmtPrice} /></Stat>
         <Stat label={`TWAP · ${t.twapWindow}s window`} tone="mint"><Ticker value={p} format={fmtPrice} /></Stat>
         <Stat label="Bond at stake" tone="violet"><Ticker value={Number(s.m.bond) / 10 ** stable.decimals} format={(v) => fmtNum(v)} /> <small>{stable.symbol}</small></Stat>
         <Stat label="Swap fee">{feePct(s.lpFee)} <small>of {feePct(t.minFee)}–{feePct(t.maxFee)}</small></Stat>
@@ -166,6 +166,12 @@ function Dashboard({ s, samples, records, logs }: { s: Snapshot; samples: Sample
       </section>
     </div>
   );
+}
+
+/** Spot from sqrtPriceX96 (exact), not the tick (floored, up to 1bp low). */
+function spotPrice(s: Snapshot) {
+  const r = (Number(s.sqrtPriceX96) / 2 ** 96) ** 2 * 10 ** (s.tok[0].decimals - s.tok[1].decimals);
+  return s.m.terms.stableIs0 ? 1 / r : r;
 }
 
 function Row({ k, v }: { k: string; v: React.ReactNode }) {
@@ -280,7 +286,7 @@ function Auction({ s, logs }: { s: Snapshot; logs: LeashLog[] }) {
   try { parsed = amt ? parseUnits(amt, stable.decimals) : null; } catch { parsed = null; }
   const problem = !open ? (s.m.manager === zeroAddress ? 'The auction ended with no bids. The treasury can close the mandate.' : 'Bidding has closed.')
     : parsed === null ? `Enter a bond of at least ${fmt(floor, stable.decimals)} ${stable.symbol}.`
-    : parsed < floor ? `Too low: the bond must be at least ${fmt(floor, stable.decimals)} ${stable.symbol}${s.m.bond ? ' (strictly above the leader)' : ''}.` : '';
+    : parsed < floor ? (s.m.bond ? `Too low: the bond must be more than the leader's ${fmt(s.m.bond, stable.decimals, 6)} ${stable.symbol}.` : `Too low: the minimum bond is ${fmt(floor, stable.decimals)} ${stable.symbol}.`) : '';
   const recQ = usePoll(() => (s.m.manager !== zeroAddress ? trackRecord(net, s.m.manager) : Promise.resolve(null)), 10_000, [s.m.manager]);
 
   return (
@@ -292,7 +298,7 @@ function Auction({ s, logs }: { s: Snapshot; logs: LeashLog[] }) {
         <div className="count">
           <Stat label={open ? 'Bidding closes in' : 'Bidding closed'}>{open ? dur(t.auctionEnd - now) : new Date(t.auctionEnd * 1000).toLocaleTimeString()}</Stat>
           <Stat label="Minimum bond">{fmt(t.minBond, stable.decimals)} {stable.symbol}</Stat>
-          {open && <Stat label="Next bid from">{fmt(floor, stable.decimals)} {stable.symbol}</Stat>}
+          {open && <Stat label={s.m.bond ? 'Next bid must exceed' : 'Opening bid from'}>{fmt(s.m.bond || floor, stable.decimals)} {stable.symbol}</Stat>}
         </div>
       </section>
 
@@ -304,7 +310,7 @@ function Auction({ s, logs }: { s: Snapshot; logs: LeashLog[] }) {
             <input inputMode="decimal" placeholder={fmt(floor, stable.decimals).replace(/,/g, '')} value={amt} onChange={(e) => setAmt(e.target.value.trim())} aria-describedby="bid-why" />
           </label>
           <div className="row-btns">
-            <button type="button" className="btn secondary sm" onClick={() => setAmt(String(Number(floor) / 10 ** stable.decimals))}>Minimum</button>
+            <button type="button" className="btn secondary sm" onClick={() => setAmt(String(s.m.bond ? Math.floor(Number(s.m.bond) / 10 ** stable.decimals) + 1 : Number(floor) / 10 ** stable.decimals))}>{s.m.bond ? 'Leader + 1' : 'Minimum'}</button>
             <button type="button" className="btn secondary sm" onClick={() => setAmt(String(Math.ceil((Number(floor) * 1.1) / 10 ** stable.decimals)))}>+10%</button>
           </div>
           <Act label="Approve and bid" kind="violet" disabled={!!problem} why={problem || 'Two signatures: the token approval (skipped if already enough), then the bid. An outbid bond becomes claimable at once.'}
@@ -340,7 +346,7 @@ function Auction({ s, logs }: { s: Snapshot; logs: LeashLog[] }) {
             {bidders.map((b, i) => (owedQ.data?.[i] ?? 0n) > 0n && <Row key={b} k={`${short(b)} can claim`} v={`${fmt(owedQ.data![i], stable.decimals)} ${stable.symbol}`} />)}
           </dl>
         )}
-        <p className="quiet small">Claimable balances include refunds, returned bonds and pay; each account withdraws its own with claim.</p>
+        <p className="quiet small">Claimable balances are per account across every mandate on this hook, and include refunds, returned bonds and pay; each account withdraws its own with claim.</p>
         {wallet.account && (mine.data ?? 0n) > 0n && (
           <div className="claim-box">
             <p>You have <b>{fmt(mine.data!, stable.decimals)} {stable.symbol}</b> claimable.</p>
@@ -365,9 +371,11 @@ function Manage({ s }: { s: Snapshot }) {
   const [edit, setEdit] = useState<{ lo: number; hi: number } | null>(null);
   const centred = { lo: Math.floor((s.twap - half) / ts) * ts, hi: Math.ceil((s.twap + half) / ts) * ts };
   const { lo, hi } = edit ?? centred;
-  const [liqStr, setLiq] = useState(String(s.m.liquidity));
-  let liq = 0n;
-  try { liq = BigInt(liqStr || '0'); } catch { liq = -1n; }
+  // Size as % of the current position; presets pin an exact value so Floor and +5% land on the contract's bounds.
+  const [size, setSize] = useState<{ pct: string; exact: bigint | null }>({ pct: '100', exact: null });
+  const bp = Math.round(Number(size.pct) * 100);
+  const liq = size.exact ?? (isFinite(bp) && bp > 0 ? (s.m.liquidity * BigInt(bp)) / 10_000n : 0n);
+  const asPct = (x: bigint) => (s.m.liquidity ? (Number((x * 1_000_000n) / s.m.liquidity) / 10_000).toString() : '0');
   const growCap = (s.m.liquidity * BigInt(10_000 + GROW_BPS)) / 10_000n;
 
   const gap = Math.abs(s.spot - s.twap), grow = liq > s.m.liquidity;
@@ -425,13 +433,14 @@ function Manage({ s }: { s: Snapshot }) {
           <label className="field"><span>Lower tick</span><input type="number" step={ts} value={lo} onChange={(e) => setEdit({ lo: Number(e.target.value), hi })} /></label>
           <label className="field"><span>Upper tick</span><input type="number" step={ts} value={hi} onChange={(e) => setEdit({ lo, hi: Number(e.target.value) })} /></label>
           <label className="field wide">
-            <span>Liquidity (current {fmtLiq(s.m.liquidity)}, floor {fmtLiq(t.minLiquidity)})</span>
-            <input className="mono" inputMode="numeric" value={liqStr} onChange={(e) => setLiq(e.target.value.replace(/[^0-9]/g, ''))} />
+            <span>Size, % of the current position (floor ≈ {Math.ceil(Number(asPct(t.minLiquidity)))}%, growth caps at 105%)</span>
+            <input inputMode="decimal" value={size.pct} onChange={(e) => setSize({ pct: e.target.value.trim(), exact: null })} />
+            <small className="mono">liquidity {liq.toString()} · {fmtLiq(liq)}</small>
           </label>
           <div className="row-btns wide">
-            <button type="button" className="btn secondary sm" onClick={() => setLiq(String(t.minLiquidity))}>Floor</button>
-            <button type="button" className="btn secondary sm" onClick={() => setLiq(String(s.m.liquidity))}>Keep size</button>
-            <button type="button" className="btn secondary sm" onClick={() => setLiq(String(growCap))}>+5% (max growth)</button>
+            <button type="button" className="btn secondary sm" onClick={() => setSize({ pct: asPct(t.minLiquidity), exact: t.minLiquidity })}>Floor</button>
+            <button type="button" className="btn secondary sm" onClick={() => setSize({ pct: '100', exact: s.m.liquidity })}>Keep size</button>
+            <button type="button" className="btn secondary sm" onClick={() => setSize({ pct: asPct(growCap), exact: growCap })}>+5% (max growth)</button>
             <button type="button" className="btn secondary sm" onClick={() => setEdit(null)}>Centre on TWAP</button>
           </div>
         </div>

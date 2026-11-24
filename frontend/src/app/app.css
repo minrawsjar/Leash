@@ -226,6 +226,9 @@
   .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
   .form-grid .wide { grid-column: 1 / -1; }
   .presets { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 18px; }
+  .create-status { display: none; position: sticky; top: 104px; z-index: 5; width: 100%; margin-bottom: 14px; padding: 10px 16px; border: 1px solid var(--line); border-radius: 999px; background: rgba(24, 28, 58, 0.92); backdrop-filter: blur(10px); font-size: 13px; font-weight: 600; text-align: left; cursor: pointer; }
+  .create-status.bad { color: var(--rose); }
+  .create-status.ok { color: var(--mint); }
   .create { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 18px; align-items: start; }
   .create-form { display: grid; gap: 14px; }
   .group { display: grid; gap: 12px; margin: 0; padding: 20px; border: 1px solid var(--line); border-radius: 22px; background: var(--surface); min-width: 0; }
@@ -240,7 +243,7 @@
   .problems .ok { background: var(--tint); color: var(--mint); }
 
   /* ── range picker ── */
-  .picker { position: relative; height: 56px; margin-top: 6px; border-radius: 14px; background: var(--ink); overflow: hidden; }
+  .picker { position: relative; height: 56px; margin: 16px 0; border-radius: 14px; background: var(--ink); }
   .picker span { position: absolute; top: 0; bottom: 0; transition: left 0.4s var(--ease), width 0.4s var(--ease); }
   .pk-dev { background: rgba(238, 240, 255, 0.07); }
   .pk-need { top: 10px !important; bottom: 10px !important; border: 1px dashed var(--soft); border-radius: 6px; z-index: 2; }
@@ -250,12 +253,13 @@
   .pk-twap { background: var(--mint); }
   .pk-spot { background: var(--cream); top: 12px !important; bottom: 12px !important; }
   .picker em { position: absolute; left: 5px; font: 10px var(--mono); font-style: normal; white-space: nowrap; }
-  .pk-twap em { top: 2px; color: var(--mint); }
-  .pk-spot em { bottom: -2px; color: var(--cream); }
+  .pk-twap em { top: -16px; color: var(--mint); }
+  .pk-spot em { bottom: -28px; color: var(--cream); }
 
   @media (max-width: 1000px) {
     .create { grid-template-columns: minmax(0, 1fr); }
     .summary { position: static; }
+    .create-status { display: block; }
     .row { grid-template-columns: minmax(0, 1fr) auto; gap: 10px 14px; }
     .row-cell.end { text-align: left; }
   }

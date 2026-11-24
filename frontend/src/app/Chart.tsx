@@ -4,7 +4,7 @@ import { fmtPrice } from './chain.ts';
 
 export type Sample = { t: number; spot: number; twap: number; lo: number; hi: number };
 
-export function Chart({ samples, price, needLo, needHi, unit }: {
+export function Chart({ samples: raw, price, needLo, needHi, unit }: {
   samples: Sample[]; price: (tick: number) => number; needLo: number; needHi: number; unit: string;
 }) {
   const box = useRef<HTMLDivElement>(null);
@@ -16,8 +16,10 @@ export function Chart({ samples, price, needLo, needHi, unit }: {
   }, []);
   const h = w < 500 ? 220 : 280;
   const pad = { l: 8, r: w < 500 ? 62 : 78, t: 14, b: 26 };
-  if (samples.length === 0) return <div ref={box} className="chart empty">Waiting for the first price…</div>;
+  if (raw.length === 0) return <div ref={box} className="chart empty">Waiting for the first price…</div>;
 
+  // one sample (a fresh page on a quiet pool) still draws as a flat line
+  const samples = raw.length === 1 ? [{ ...raw[0], t: raw[0].t - 60 }, raw[0]] : raw;
   const last = samples[samples.length - 1];
   // y in price; a token priced in a stable that is currency0 inverts the tick axis, so sort each pair.
   const ranged = samples.filter((s) => s.lo < s.hi); // a closed mandate has no position

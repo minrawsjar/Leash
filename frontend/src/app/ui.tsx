@@ -71,7 +71,7 @@ export function usePoll<T>(load: () => Promise<T>, ms: number, deps: unknown[]):
   const [err, setErr] = useState('');
   useEffect(() => {
     let live = true;
-    const run = () => load().then((d) => { if (live) { setData(d); setErr(''); } }, (e) => { if (live) setErr(explain(e)); });
+    const run = () => document.hidden ? undefined : load().then((d) => { if (live) { setData(d); setErr(''); } }, (e) => { if (live) setErr(explain(e)); });
     run();
     const i = setInterval(run, ms);
     return () => { live = false; clearInterval(i); };

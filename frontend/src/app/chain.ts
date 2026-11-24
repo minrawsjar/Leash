@@ -1,7 +1,7 @@
 // Chain access for the Leash app: networks, ABI, reads and the math to show them. No DOM here, so the
 // verify script (verify.ts) can import it under plain node.
 import {
-  createPublicClient, defineChain, http, keccak256, encodeAbiParameters, parseEventLogs, erc20Abi, zeroAddress,
+  createPublicClient, defineChain, fallback, http, keccak256, encodeAbiParameters, parseEventLogs, erc20Abi, zeroAddress,
   type Abi, type Address, type Hex, type PublicClient,
 } from 'viem';
 import leashJson from '../../../deployments/abi/Leash.json' with { type: 'json' };
@@ -24,10 +24,10 @@ export const leashAbi = [...(leashJson as Abi), ...v4Errors] as Abi;
 const pmAbi = [{ type: 'function', name: 'extsload', stateMutability: 'view', inputs: [{ name: 'slot', type: 'bytes32' }], outputs: [{ type: 'bytes32' }] }] as const;
 
 export type Deployment = { chainId: number; leash: Address; poolManager: Address; block: number; tkn?: Address; usdc?: Address; swapRouter?: Address };
-export type Net = { id: number; name: string; short: string; rpc: string; explorer: string; logsApi?: string; dep: Deployment };
+export type Net = { id: number; name: string; short: string; rpc: string; rpcs?: string[]; explorer: string; logsApi?: string; dep: Deployment };
 
 export const NETS: Record<number, Net> = {
-  1301: { id: 1301, name: 'Unichain Sepolia', short: 'Unichain', rpc: 'https://sepolia.unichain.org', explorer: 'https://unichain-sepolia.blockscout.com', logsApi: 'https://unichain-sepolia.blockscout.com/api', dep: dep1301 as Deployment },
+  1301: { id: 1301, name: 'Unichain Sepolia', short: 'Unichain', rpc: 'https://sepolia.unichain.org', rpcs: [import.meta.env?.VITE_UNICHAIN_RPC, 'https://unichain-sepolia-rpc.publicnode.com', 'https://unichain-sepolia.drpc.org', 'https://sepolia.unichain.org'].filter(Boolean) as string[], explorer: 'https://unichain-sepolia.blockscout.com', logsApi: 'https://unichain-sepolia.blockscout.com/api', dep: dep1301 as Deployment },
   31337: { id: 31337, name: 'Local anvil', short: 'Local', rpc: 'http://127.0.0.1:8545', explorer: '', dep: dep31337 as Deployment },
 };
 export const viemChain = (n: Net) => defineChain({
@@ -36,7 +36,15 @@ export const viemChain = (n: Net) => defineChain({
 });
 const clients = new Map<number, PublicClient>();
 export const client = (n: Net): PublicClient => {
-  if (!clients.has(n.id)) clients.set(n.id, createPublicClient({ chain: viemChain(n), transport: http(n.rpc, { batch: true }), pollingInterval: 1000 }) as PublicClient);
+  if (!clients.has(n.id)) clients.set(n.id, createPublicClient({
+    chain: viemChain(n),
+    // Public testnet RPCs rate-limit per IP: spread across several, retry with backoff, batch every round trip.
+    transport: n.rpcs
+      ? fallback(n.rpcs.map((u) => http(u, { batch: true, retryCount: 2, retryDelay: 400 })))
+      : http(n.rpc, { batch: true }),
+    batch: { multicall: true },
+    pollingInterval: n.rpcs ? 2000 : 1000,
+  }) as PublicClient);
   return clients.get(n.id)!;
 };
 
@@ -122,15 +130,29 @@ export async function slot0(n: Net, id: Hex, blockNumber?: bigint) {
 }
 
 // ---------------------------------------------------------------- logs
-/** Every Leash event since deployment. Local: RPC getLogs. Unichain Sepolia: Blockscout (the RPC caps ranges at 1000 blocks). */
+type RawLog = { address: Address; topics: Hex[]; data: Hex; blockNumber: bigint | Hex | null; transactionHash: Hex | null; logIndex: number | Hex | null };
+// Logs already scanned, per network: each poll asks only for blocks after `to`.
+const scanned = new Map<number, { to: bigint; logs: RawLog[] }>();
+
+/** Every Leash event since deployment, over RPC. Scans incrementally; if a node refuses a wide range, steps 1000 blocks. */
 export async function leashLogs(n: Net): Promise<LeashLog[]> {
-  let raw: { address: Address; topics: Hex[]; data: Hex; blockNumber: bigint | Hex | null; transactionHash: Hex | null; logIndex: number | Hex | null }[];
-  if (n.logsApi) {
-    const r = await fetch(`${n.logsApi}?module=logs&action=getLogs&fromBlock=${n.dep.block}&toBlock=latest&address=${n.dep.leash}`).then((x) => x.json());
-    raw = Array.isArray(r.result) ? r.result.map((l: { topics: (Hex | null)[] }) => ({ ...l, topics: l.topics.filter(Boolean) })) : [];
-  } else {
-    raw = await client(n).getLogs({ address: n.dep.leash, fromBlock: BigInt(n.dep.block) });
+  const c = client(n);
+  const seen = scanned.get(n.id) ?? { to: BigInt(n.dep.block) - 1n, logs: [] };
+  const head = await c.getBlockNumber();
+  let from = seen.to + 1n;
+  const got: RawLog[] = [];
+  if (from <= head) {
+    try {
+      got.push(...((await c.getLogs({ address: n.dep.leash, fromBlock: from, toBlock: head })) as RawLog[]));
+    } catch {
+      for (; from <= head; from += 1000n) {
+        const to = from + 999n < head ? from + 999n : head;
+        got.push(...((await c.getLogs({ address: n.dep.leash, fromBlock: from, toBlock: to })) as RawLog[]));
+      }
+    }
   }
+  const raw = [...seen.logs, ...got];
+  scanned.set(n.id, { to: head, logs: raw });
   const parsed = parseEventLogs({ abi: leashAbi, logs: raw as never, strict: false });
   return parsed.map((l) => ({
     eventName: l.eventName as string, args: l.args as Record<string, unknown>, blockNumber: BigInt(l.blockNumber as bigint),

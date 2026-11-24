@@ -17,7 +17,7 @@ export function MandatePage({ id, tab, refresh }: { id: Hex; tab: string; refres
   const { net } = useApp();
   const logsQ = usePoll(() => leashLogs(net), net.logsApi ? 20_000 : 5_000, [net.id, refresh]);
   const entry = logsQ.data && mandatesFrom(logsQ.data).find((x) => x.id.toLowerCase() === id.toLowerCase());
-  const snapQ = usePoll(() => (entry ? snapshot(net, entry.id, entry.key) : Promise.resolve(undefined)), 3_000, [entry?.id, refresh]);
+  const snapQ = usePoll(() => (entry ? snapshot(net, entry.id, entry.key) : Promise.resolve(undefined)), net.rpcs ? 6_000 : 3_000, [entry?.id, refresh]);
   const s = snapQ.data;
   const recQ = usePoll(() => (s ? epochRecords(net, s.id, s.m.terms.epochs) : Promise.resolve([])), 6_000, [s?.id, s?.m.settled, refresh]);
   const logs = useMemo(() => (logsQ.data ?? []).filter((l) => String(l.args.id).toLowerCase() === id.toLowerCase()), [logsQ.data, id]);

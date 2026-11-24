@@ -91,6 +91,10 @@ struct Obs {
 // a 30-min window, and the TWAP silently shortens to what is held. Upgrade: v3-style growable cardinality.
 uint256 constant OBS = 1024;
 uint256 constant BPS = 10_000;
+// The oracle's recorded tick moves at most 50 ticks (~0.5%) per second from the previous observation's. That follows
+// any genuine market (a 30% crash is reflected in ~1 minute, a full window still converges to the new price) but a
+// price parked anywhere for one 12s block moves the recorded tick at most 600 ticks, and a 30-minute TWAP at most 4.
+int256 constant MAX_MOVE = 50;
 bytes32 constant ANCHOR = bytes32(uint256(1)); // salt of the full-range anchor; the managed position uses 0
 // ponytail: one checkpoint after a long quiet spell writes every epoch it spans (~23k gas each), and close() settles
 // every unsettled epoch (~80k each). 104 (two years of weekly epochs) keeps both under the 2^24 per-transaction gas
@@ -506,14 +510,21 @@ contract Leash is BaseHook, IUnlockCallback {
     function _observe(Oracle storage o, int24 tick) internal {
         Obs memory last = o.obs[o.index];
         if (last.time == block.timestamp) return;
+        uint256 dt = block.timestamp - last.time;
+        int24 r = _truncate(last.tick, tick, dt);
         uint16 i = uint16((o.index + 1) % OBS);
-        o.obs[i] = Obs(
-            uint32(block.timestamp),
-            tick,
-            last.tickCumulative + int56(tick) * int56(uint56(block.timestamp - last.time))
-        );
+        o.obs[i] = Obs(uint32(block.timestamp), r, last.tickCumulative + int56(r) * int56(uint56(dt)));
         (o.index, o.open) = (i, tick);
         if (o.count < OBS) o.count++;
+    }
+
+    /// `to`, moved at most MAX_MOVE ticks per second of `dt` away from `from`. dt needs no cap beyond overflow
+    /// safety (int256): a long dt means the price really sat there with nobody trading against it.
+    function _truncate(int24 from, int24 to, uint256 dt) internal pure returns (int24) {
+        int256 cap = MAX_MOVE * int256(dt);
+        if (to > from + cap) return int24(from + cap);
+        if (to < from - cap) return int24(from - cap);
+        return to;
     }
 
     /// Time-weighted tick over the last `window` seconds, or over all history held if that is shorter.
@@ -521,6 +532,9 @@ contract Leash is BaseHook, IUnlockCallback {
         Oracle storage o = _oracles[id];
         (, int24 spot,,) = poolManager.getSlot0(id);
         Obs memory last = o.obs[o.index];
+        // Spot since the last observation, truncated exactly as the next observation will record it, so the view
+        // can't be pushed either.
+        spot = _truncate(last.tick, spot, block.timestamp - last.time);
         uint256 oldest = o.count < OBS ? 0 : (o.index + 1) % OBS;
         Obs memory first = o.obs[oldest];
 

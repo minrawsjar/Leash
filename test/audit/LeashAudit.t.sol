@@ -373,18 +373,24 @@ contract LeashAuditTest is Test, Deployers {
     uint32[] obsTime;
     int24[] obsTickAfter; // tick in force after obsTime[k]
 
-    /// Integral of the tick over (from, now], from the recorded history. Floor division, like _twap.
+    /// Integral of the recorded tick over (from, now], from the history. Each interval records the tick in force,
+    /// moved at most 50 ticks per second from the previous interval's recorded tick (the oracle's truncation); the
+    /// creation observation records 0. Floor division, like _twap.
     function _refTwap(uint256 window) internal view returns (int24) {
         uint256 n = obsTime.length;
         uint256 oldest = n > 1024 ? obsTime[n - 1024] : obsTime[0];
         uint256 from = block.timestamp - window < oldest ? oldest : block.timestamp - window;
         int256 sum;
+        int256 r;
         for (uint256 k; k < n; k++) {
             uint256 a = obsTime[k];
             uint256 b = k + 1 < n ? obsTime[k + 1] : block.timestamp;
+            int256 cap = 50 * int256(b - a);
+            int256 t = obsTickAfter[k];
+            r = t > r + cap ? r + cap : t < r - cap ? r - cap : t;
             if (b <= from) continue;
             if (a < from) a = from;
-            sum += int256(obsTickAfter[k]) * int256(b - a);
+            sum += r * int256(b - a);
         }
         int256 dt = int256(block.timestamp - from);
         int256 q = sum / dt;

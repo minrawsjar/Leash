@@ -117,6 +117,13 @@ contract LeashTest is Test, Deployers {
     }
 
     /// Alice wins; a keeper checkpoints as epoch 0 opens.
+    /// Swaps from either side until the price is exactly at `t`.
+    function _moveTo(int24 t) internal {
+        (uint160 p,,,) = manager.getSlot0(key.toId());
+        uint160 target = TickMath.getSqrtPriceAtTick(t);
+        if (p != target) _swapTo(target < p, 1e30, t);
+    }
+
     function _win() internal {
         vm.prank(alice);
         leash.bid(key, 10e18);
@@ -220,6 +227,35 @@ contract LeashTest is Test, Deployers {
         _swapTo(true, 100e18, -200);
         vm.warp(block.timestamp + 900); // half the window at -200, half at 400
         assertEq(leash.twapTick(key), 100);
+    }
+
+    /// A genuine 30% move (3000 ticks), traded every 12s block: the recorded tick ramps 600 per block, so it reaches
+    /// the new price within a minute, and the TWAP is fully there one window after that.
+    function test_twap_followsGenuineFastMoveWithinAboutAWindow() public {
+        vm.warp(auctionEnd);
+        _swapTo(false, 1e30, 3000);
+        uint256 t0 = block.timestamp;
+        while (block.timestamp < t0 + 1800 + 60) {
+            vm.roll(block.number + 1);
+            vm.warp(block.timestamp + 12);
+            swap(key, block.number % 2 == 0, -1e15, ZERO_BYTES); // ordinary trading at the new price
+            _moveTo(3000);
+        }
+        assertEq(leash.twapTick(key), 3000, "fully at the new price one window + one minute later");
+    }
+
+    /// Someone parks the price 400,000 ticks up for one 12s block (it costs them ~1e28 tokens through the anchor)
+    /// and lets it come back: the recorded tick moves at most 600, the 30-minute TWAP at most 4.
+    function test_twap_oneBlockSpikeBarelyMovesIt() public {
+        vm.warp(auctionEnd);
+        _swapTo(false, 1e30, 400_000);
+        vm.roll(block.number + 1);
+        vm.warp(block.timestamp + 12);
+        assertLe(leash.twapTick(key), 4, "view while parked");
+        _swapTo(true, 1e30, 0);
+        assertLe(leash.twapTick(key), 4, "recorded");
+        vm.warp(block.timestamp + 1 hours);
+        assertEq(leash.twapTick(key), _tick(), "gone after a window"); // -1: v4's tick after landing on 0 from above
     }
 
     // ---------------------------------------------------------------- auction

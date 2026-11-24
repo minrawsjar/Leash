@@ -80,7 +80,7 @@ Leash makes market making and diversification the same trade. The treasury's tok
 
 ### What's built
 
-Built for the UHI11 Hookathon (deadline 3 December 2026). Everything below is done:
+Built for the UHI11 Hookathon. Everything below is done:
 
 | Piece | Where |
 |---|---|

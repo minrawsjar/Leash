@@ -348,8 +348,8 @@ contract Leash is BaseHook, IUnlockCallback {
         EpochRecord storage r = _epochs[id][e];
         // Poke the position to collect its fees. ponytail: fees are booked when collected, so a late settle books
         // some of epoch e+1's fees to e. Settle promptly, or snapshot fee growth at epoch boundaries if it matters.
-        (uint256 f0, uint256 f1) = _move(key, m, m.tickLower, m.tickUpper, m.liquidity);
-        (uint256 fees0, uint256 fees1) = (r.fees0 + f0, r.fees1 + f1);
+        (uint256 fees0, uint256 fees1) = _move(key, m, m.tickLower, m.tickUpper, m.liquidity);
+        (fees0, fees1) = (r.fees0 + fees0, r.fees1 + fees1);
         (r.fees0, r.fees1, r.settled) = (uint128(fees0), uint128(fees1), true);
         r.clean = uint256(r.inSecs) * BPS >= uint256(m.terms.uptimeBps) * (uint256(r.inSecs) + r.outSecs);
         m.settled = uint16(e + 1);
@@ -363,9 +363,14 @@ contract Leash is BaseHook, IUnlockCallback {
             owed[m.manager][key.currency1] += pay1;
             records[m.manager].clean++;
         } else {
-            (slashed, m.bond, m.breached) = (m.bond, 0, true);
-            owed[m.treasury][_stable(key, m)] += slashed;
+            (slashed, m.breached) = (m.bond, true);
             records[m.manager].breached++;
+        }
+        // A breach sends the bond to the treasury. The last clean epoch frees it to the manager, so a clean
+        // manager never depends on the treasury closing.
+        if (!r.clean || e + 1 == m.terms.epochs) {
+            owed[r.clean ? m.manager : m.treasury][_stable(key, m)] += m.bond;
+            m.bond = 0;
         }
         // The treasury keeps the rest of the fees as inventory.
         (m.fees0, m.fees1) = (m.fees0 - fees0, m.fees1 - fees1);

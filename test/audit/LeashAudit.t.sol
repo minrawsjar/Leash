@@ -296,8 +296,8 @@ contract LeashAuditTest is Test, Deployers {
     /// mandate, every epoch settled by a third party, the manager has its pay but no route to its bond: a treasury
     /// that never closes (lost keys, a governance contract without the call, extortion, a USDC-blacklisted treasury
     /// whose close() reverts on the transfer) locks it forever.
+    /// Fixed: settling the final epoch clean credits the bond to the manager, so this now holds.
     function test_M2_cleanManagersBondIsHostageToTreasuryClose() public {
-        vm.skip(true); // until its fix lands
         _win();
         vm.warp(auctionEnd + 3 days);
         for (uint256 e; e < 3; e++) {
@@ -315,6 +315,11 @@ contract LeashAuditTest is Test, Deployers {
         leash.claim(currency1);
         vm.stopPrank();
         assertEq(_bal(currency1, alice), 1_000e18, "clean manager has its bond back");
+        assertEq(_m().bond, 0);
+
+        // The treasury's later close owes the manager nothing more.
+        leash.close(key);
+        assertEq(leash.owed(alice, currency1), 0, "no double refund");
     }
 
     // ================================================================ L-1

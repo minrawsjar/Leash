@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
-// Run through scripts/keeper.sh. Signs with KEEPER_PRIVATE_KEY; on the local chain it defaults to anvil account #4.
+// Superseded by scripts/keeper.sh, which discovers every mandate from MandateCreated logs and applies the same rules
+// with cast. Kept for test/Settle.t.sol (keep()) and as a one-pool round for a deployments file that has a `pool`
+// key (31337.json). Signs with KEEPER_PRIVATE_KEY; on the local chain it defaults to anvil account #4.
 
 import {Script} from "forge-std/Script.sol";
 import {console2} from "forge-std/console2.sol";

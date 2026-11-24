@@ -1,0 +1,63 @@
+name: test
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: foundry-rs/foundry-toolchain@v1
+
+      # Fails if a deployable contract passes the 24,576-byte limit (Leash has a small margin).
+      - name: Build
+        run: forge build --sizes
+
+      - name: Test
+        run: forge test -vv
+
+      # Compare first, only if a snapshot is committed; fuzz runs vary, hence the tolerance.
+      - name: Gas snapshot check
+        if: hashFiles('.gas-snapshot') != ''
+        run: forge snapshot --check --tolerance 5
+
+      - name: Gas snapshot
+        run: forge snapshot
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gas-snapshot
+          path: .gas-snapshot
+
+      # Coverage builds unoptimized (--ir-minimum), which changes gas and fails at least one gas-heavy test
+      # (test_twap_followsGenuineFastMoveWithinAboutAWindow) that passes under forge test. Report only.
+      - name: Coverage
+        continue-on-error: true
+        run: forge coverage --report summary --ir-minimum --allow-failure
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - run: npm ci
+      - run: npx tsc -b --noEmit
+      - run: npm run build
+
+      # Stand-in fetch, no key, no network (see the file header). Node 22 strips the types itself.
+      - name: Draft handler test
+        run: node api/draft.test.ts

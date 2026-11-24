@@ -2,7 +2,7 @@
 
 > **Five Solidity files: one deploys the hook, one builds a full local chain, one is the keeper, one mints testnet tokens, one mines the hook address.**
 
-Everything here runs under `forge script`. The scripts write their results to [`../deployments/`](../deployments/README.md) (the only folder `foundry.toml` lets them write, through `fs_permissions`) and forge records every broadcast transaction under `broadcast/`. The shell wrappers that run `Local.s.sol` and `Settle.s.sol` are in [`../scripts/`](../scripts/README.md). The contract they deploy is described in [`../src/README.md`](../src/README.md); the tests that run this code without broadcasting are in [`../test/README.md`](../test/README.md).
+Everything here runs under `forge script`. The scripts write their results to [`../deployments/`](../deployments/README.md) (the only folder `foundry.toml` lets them write, through `fs_permissions`) and forge records every broadcast transaction under `broadcast/`. The shell wrapper that runs `Local.s.sol`, and the keeper loop (`keeper.sh`, which replaces `Settle.s.sol` for real use), are in [`../scripts/`](../scripts/README.md). The contract they deploy is described in [`../src/README.md`](../src/README.md); the tests that run this code without broadcasting are in [`../test/README.md`](../test/README.md).
 
 ## Files
 
@@ -11,7 +11,7 @@ Everything here runs under `forge script`. The scripts write their results to [`
 | [`DeployLeash.s.sol`](DeployLeash.s.sol) | `DeployLeash` | Mines a hook address and deploys `Leash` through CREATE2 against an existing PoolManager | `deployments/<chainId>.json` |
 | [`HookMiner.sol`](HookMiner.sol) | `HookMiner` (library) | Brute-forces the CREATE2 salt whose address carries the permission bits | nothing |
 | [`Local.s.sol`](Local.s.sol) | `Local is DeployLeash` | A fresh v4 PoolManager, swap router, two mock tokens, Leash and one seeded mandate on anvil | `deployments/31337.json` |
-| [`Settle.s.sol`](Settle.s.sol) | `Settle` | One keeper round: `checkpoint`, then `settle` every ended epoch in order | nothing |
+| [`Settle.s.sol`](Settle.s.sol) | `Settle` | One keeper round for one pool: `checkpoint`, then `settle` every ended epoch in order. Superseded by `scripts/keeper.sh` | nothing |
 | [`Tokens.s.sol`](Tokens.s.sol) | `Tokens`, `Faucet` | Deploys testnet TKN and mUSDC with an open mint; mints more later | `deployments/<chainId>-tokens.json` |
 
 ## Folder Structure
@@ -24,7 +24,7 @@ script/
 │                       #   deployLeash(): HookMiner.find + new Leash{salt}, checks the address
 ├── HookMiner.sol       # CREATE2 salt search, up to 500,000 salts, mask 0x3FFF
 ├── Local.s.sol         # Extends DeployLeash. Anvil's default mnemonic only, refuses chain != 31337
-├── Settle.s.sol        # Keeper round for the pool in deployments/<chainId>.json. KEEPER_PRIVATE_KEY
+├── Settle.s.sol        # One-pool keeper round (pool key from deployments/<chainId>.json); superseded by scripts/keeper.sh
 └── Tokens.s.sol        # Tokens: TKN (18 dec) + mUSDC (6 dec), 10M each to the deployer
                         # Faucet: 1M of each to TO (default: the key's address)
 ```
@@ -43,7 +43,7 @@ Forge loads `.env` from the repo root automatically. [`.env.example`](../.env.ex
 |---|---|---|
 | `PRIVATE_KEY` | `DeployLeash`, `Tokens`, `Faucet` | Deployer key, 0x-prefixed. Needs Unichain Sepolia ETH for gas |
 | `POOL_MANAGER` | `DeployLeash` | Optional on 1301; required on any other chain |
-| `KEEPER_PRIVATE_KEY` | `Settle` | Keeper signer; needs gas only. Defaults to anvil account #4 on 31337 |
+| `KEEPER_PRIVATE_KEY` | `Settle`, `scripts/keeper.sh` (which prefers `PRIVATE_KEY`) | Keeper signer; needs gas only. Defaults to anvil account #4 on 31337 |
 | `TO` | `Faucet` | Recipient of the minted tokens; defaults to `vm.addr(PRIVATE_KEY)` |
 
 `Local.s.sol` reads no variables: it derives every key from anvil's public mnemonic (`test test ... junk`).
@@ -159,7 +159,7 @@ forge script script/Local.s.sol:Local --rpc-url http://127.0.0.1:8545 --broadcas
 
 ### Settle.s.sol
 
-One keeper round against the pool named in `deployments/<chainId>.json`. [`../scripts/keeper.sh`](../scripts/README.md#keepersh) runs it on a loop.
+One keeper round against the pool named in `deployments/<chainId>.json`. Superseded by [`../scripts/keeper.sh`](../scripts/README.md#keepersh), which finds every mandate from `MandateCreated` logs and applies these same rules with `cast`; `Settle` stays because `test/Settle.t.sol` tests the rules through `keep()`, and it still works for a file with a `pool` key (`31337.json`).
 
 1. Reads `deployments/<chainId>.json`. If it has no `.pool` key, logs `No pool in <path>` and returns without broadcasting.
 2. Rebuilds the `PoolKey` from `.pool.currency0`, `.pool.currency1`, `.pool.fee`, `.pool.tickSpacing`, `.pool.hooks`.
@@ -173,12 +173,11 @@ One keeper round against the pool named in `deployments/<chainId>.json`. [`../sc
 It decides with view calls only, never `try`/`catch`: forge still broadcasts a call that reverted inside a `try`, so a guarded call would send a failing transaction anyway.
 
 ```bash
-./scripts/keeper.sh                                   # loop, local
-RPC_URL=unichain_sepolia ./scripts/keeper.sh          # loop, testnet
-forge script script/Settle.s.sol:Settle --rpc-url http://127.0.0.1:8545 --broadcast --slow   # one round
+forge script script/Settle.s.sol:Settle --rpc-url http://127.0.0.1:8545 --broadcast --slow   # one round, local pool
+./scripts/keeper.sh --dry-run --once                  # every mandate on Unichain Sepolia, read-only
 ```
 
-`deployments/1301.json` has no `pool` key (DeployLeash does not write one), so on Unichain Sepolia the script currently logs `No pool in ...` and exits. To keep a testnet mandate, add its `pool` object to that file in the same shape as `31337.json`. `test/Settle.t.sol` runs `keep()` against a `Local` stack.
+`deployments/1301.json` has no `pool` key (DeployLeash does not write one, and a chain can hold many mandates), so on Unichain Sepolia this script logs `No pool in ...` and exits; use `keeper.sh` there. `test/Settle.t.sol` runs `keep()` against a `Local` stack.
 
 ### Tokens.s.sol
 

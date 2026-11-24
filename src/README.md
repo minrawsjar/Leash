@@ -254,7 +254,7 @@ Only the treasury, and only when one of these holds:
 
 Then `close` marks the mandate closed, removes the managed position and the anchor in one unlock, credits any bond still held to the manager (zero if slashed or already freed), and transfers `idle + fees` of both currencies to the treasury. After `close`, the hook holds for this mandate only what it owes in `owed`. `test_close_returnsEverything`, `test_close_paysCleanManagerFirst` (nobody settled during the mandate; close settles all three before paying out), `test_close_noBids_afterAuction`, `test_anchor_fullRangeUntouchedByRebalancesRemovedAtClose`.
 
-Closing settles every remaining epoch in one transaction, which is why `epochs` is capped at 104: `test_L1_closeAfter365UnsettledEpochsExceedsTxGasCap` measures close with 104 unsettled epochs at **8,605,708 gas**, under 2²⁴ = 16,777,216.
+Closing settles every remaining epoch in one transaction, which is why `epochs` is capped at 104: `test_L1_closeAfter365UnsettledEpochsExceedsTxGasCap` measures close with 104 unsettled epochs at **8,610,615 gas**, under 2²⁴ = 16,777,216.
 
 ### Claims and owed balances
 

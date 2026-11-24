@@ -1,0 +1,86 @@
+
+[0] Fresh anvil: Uniswap v4 PoolManager, swap router, TKN (18 dec) and mUSDC (6 dec), Leash hook (mined address)
+    Leash hook  0x87676DE04280533f0456E8Ee02a34d21F5bBa880 (low bits 0x2880 = beforeInitialize|beforeAddLiquidity|beforeSwap)
+    PoolManager 0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512   router 0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0
+    pool        TKN/mUSDC, dynamic fee, tick spacing 60, id 0xea360aee491d0257c450ed28e533f981b7a0fb26fa089deb9290fbe8967bf7f4
+    accounts    #0 treasury 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266, #1 manager 0x70997970C51812dc3A010C7d01b50e0d17dc79C8, #2 manager 0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC, #3 trader 0x90F79bf6EB2c4f870365E785982E1f101E93b906, #4 keeper 0x15d34AAf54267DB7D7c367839AAf71A00a2C6A65
+
+[1] Treasury #0 posts a mandate: deposits inventory into a pool only the hook can touch
+    first try, minBond 4,000 mUSDC (1% of the deposit), rehearsed against the chain:
+    REVERTED ThinBond() (0x110c6f69): createMandate(minBond = 4,000 mUSDC = 1% of deposit) reverted ThinBond()
+    second try, minBond 10,000 mUSDC (2.5%, over the 2% floor): accepted
+    deposit     100000 TKN + 200000 mUSDC (out of the treasury's 1,000,000 of each)
+    terms       fee 500 pips (0.05%) .. 10000 pips (1.00%), 3 epochs x 60 min, minBond 10000 mUSDC
+                uptime 9500 bps, manager share 3000 bps of LP fees, TWAP window 120 s
+                rebalance only within 100 ticks of TWAP, range must cover TWAP +- 200, stablecoin glide 6000 -> 8000 bps
+    position    [-270540, -268140) liquidity 1165156560289299513, plus full-range anchor 28284271247461900 (min 582578280144649756)
+    auction     ends at 00:12:57 (578 s from now)
+
+[2] Two managers bid bonds for the right to run it
+    #1 bids 10,000 mUSDC
+    #2 bids 12,000 mUSDC
+    REVERTED LowBid() (0xbecfaa2b)
+       (#1 tries 11,000: not above the lead)
+    leader      0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC (#2), bond 12000 mUSDC held by the hook
+    owed(#1)    10000 mUSDC: the outbid bond is claimable now
+
+[3] Auction ends; keeper #4 checkpoints; manager #2 sets its fee and re-ranges
+    setFee(3000): 3000 pips (0.30%) (the terms allow 500 pips (0.05%) .. 10000 pips (1.00%))
+    rebalance   [-269760, -268980) liquidity 1165156560289299513 around TWAP -269393 (spot -269393); a narrower range, same depth
+    idle        63193.917895868286899057 TKN + 129976.394717 mUSDC back in the hook
+    compliance  inRange=true deep=true onPace=true stable=49.98%
+
+[4] THE ATTACK: the manager pushes the price off fair value, re-ranges at the fake price, trades back
+    4a #2 sells into the pool: spot -269543, TWAP -269393 (it lags, 120 s window, truncated at 50 ticks/s)
+       that swap paid 3000 pips (0.30%): spot started at the TWAP, so just the set fee
+    4b #2 re-ranges around the fake price, [-269940, -269160):
+    REVERTED SpotOffTwap() (0xe16ad561)
+       |spot - TWAP| = 150 > maxTickDeviation 100
+    4c #2 pushes 100 ticks further while spot is 150 ticks off the TWAP: fee charged 4300 pips (0.43%)
+       = set fee 3000 + 10 pips x (140 - 10) ticks off the TWAP at that block, beyond the 10-tick free band (cap: maxFee)
+       the price is the manager's own: pushing it off fair value pays the treasury more on every swap
+    4d trader #3 arbitrages back to the TWAP from 240 ticks off: fee 5170 pips (0.51%), under the ~2.40% mispricing it closes
+       150 s later: spot -269403, TWAP -269403
+    4e same block: #2 nudges the price, then grows the position 4% behind the nudge (one block, automine off)
+       block 41: nudge mined (status 1), grow REVERTED on chain with SameBlock() (0x6dde4588)
+       position unchanged: [-269760, -268980) liquidity 1165156560289299513. The sandwich has no leg to stand on.
+
+[5] Epoch 0 ends clean; the keeper settles it
+    epoch 0     in 3600 s, out 0 s, clean=true; LP fees 42.587723510528615652 TKN + 102.085279 mUSDC
+    manager #2  owed 12.776317053158584695 TKN + 30.625583 mUSDC (30% of the epoch's fees)
+    keeper #4   owed 0.029811406457370030 TKN + 0.071459 mUSDC (bounty: 10 bps of the treasury's 70%)
+    treasury    keeps the rest as inventory
+
+[6] Epoch 1: the market drops 1,000 ticks and manager #2 is asleep
+    trader #3 sells: spot -270451, range [-269760, -268980) (fee on that swap 3000 pips (0.30%))
+      +30s  TWAP -269701  inRange=true deep=true onPace=true stable=44.25%  out so far 0 s
+      +60s  TWAP -269960  inRange=false deep=true onPace=true stable=43.54%  out so far 31 s
+      +90s  TWAP -270210  inRange=false deep=true onPace=true stable=44.03%  out so far 61 s
+      +120s  TWAP -270451  inRange=false deep=true onPace=true stable=44.50%  out so far 91 s
+      +150s  TWAP -270451  inRange=false deep=true onPace=true stable=44.50%  out so far 121 s
+      +180s  TWAP -270451  inRange=false deep=true onPace=true stable=44.50%  out so far 151 s
+      +210s  TWAP -270451  inRange=false deep=true onPace=true stable=44.50%  out so far 181 s
+      +240s  TWAP -270451  inRange=false deep=true onPace=true stable=44.50%  out so far 211 s
+      +270s  TWAP -270451  inRange=false deep=true onPace=true stable=44.50%  out so far 241 s
+    #2 wakes up and re-ranges to [-270840, -270060) around TWAP -270451: inRange=true deep=true onPace=true stable=44.50%
+    epoch 1     in 3359 s, out 241 s, clean=false; allowance 180 s (5%), fired at 360 s
+    slash       bond 12000 -> 7933.333334 mUSDC: 4066.666666 to the treasury
+                = bond x (out - allowance) / allowance = 33% ; breached (fired) = false
+    owed(#0)    4066.666666 mUSDC
+
+[7] Epoch 2 runs clean; the treasury closes and everyone claims
+    close()     settles epoch 2 (in 3600 s, out 0 s, clean=true), pulls both positions, returns all inventory; closed=true
+    records(#2) 2 1 (clean, missed)
+    claims sent; hook balance left: 0 TKN, 0 mUSDC
+
+    final spot tick -270451: 1 TKN = 1.7991 mUSDC
+    account                      TKN change     mUSDC change      net, in mUSDC
+    #0 treasury   +16450.353793866859183860    -27945.479860           +1649.96
+    #1 manager                           +0               +0              +0.00
+    #2 manager    -12672.976512346786551261    +20969.168486           -1830.48
+    #3 trader      -3777.445906351121668751     +6976.239909            +180.33
+    #4 keeper         +0.068624831049036140        +0.071459              +0.19
+    (change against the 1,000,000 TKN + 1,000,000 mUSDC each of #0-#3 was minted; #4 started with none)
+    (net marks every row at the final price; #2 sold TKN in the attack before the 10% drop, so its row is not just slash plus pay)
+
+Demo complete.

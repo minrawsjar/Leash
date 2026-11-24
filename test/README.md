@@ -202,7 +202,7 @@ Ran 2 tests for test/fuzz/LeashInvariant.t.sol                  2 passed (runs: 
 Ran 6 test suites: 61 tests passed, 0 failed, 0 skipped (61 total tests)
 ```
 
-Gas figures logged by the tests: close with 104 unsettled epochs 8,605,708; the first swap after a quiet gap over 104 epochs 2,534,163. Both are under the EIP-7825 cap of 16,777,216.
+Gas figures logged by the tests: close with 104 unsettled epochs 8,610,615; the first swap after a quiet gap over 104 epochs 2,534,163. Both are under the EIP-7825 cap of 16,777,216.
 
 ## Limits of the Tests
 

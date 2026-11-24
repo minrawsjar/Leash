@@ -61,6 +61,15 @@ contract Local is DeployLeash {
     }
 
     function deployStack() public {
+        deployContracts();
+        postMandate();
+        bid(MANAGER1, BID1);
+        bid(MANAGER2, BID2); // outbids #1, whose bond becomes claimable via owed/claim
+        trade();
+    }
+
+    /// PoolManager, swap router, the two mock tokens (1M of each to accounts #0-#3) and Leash; sets key and price.
+    function deployContracts() public {
         deployBlock = block.number;
         vm.startBroadcast(pk(TREASURY));
         manager = new PoolManager(addr(TREASURY));
@@ -72,10 +81,10 @@ contract Local is DeployLeash {
             tkn.mint(addr(i), 1_000_000e18);
             usdc.mint(addr(i), 1_000_000e6);
         }
+        vm.stopBroadcast();
 
-        bool usdcIs0 = address(usdc) < address(tkn);
+        (bool usdcIs0, uint256 a0, uint256 a1) = deposits();
         (MockERC20 t0, MockERC20 t1) = usdcIs0 ? (usdc, tkn) : (tkn, usdc);
-        (uint256 a0, uint256 a1) = usdcIs0 ? (USDC_DEPOSIT, TKN_DEPOSIT) : (TKN_DEPOSIT, USDC_DEPOSIT);
         key = PoolKey(
             Currency.wrap(address(t0)),
             Currency.wrap(address(t1)),
@@ -85,15 +94,23 @@ contract Local is DeployLeash {
         );
         id = key.toId();
         openSqrtPriceX96 = uint160(FixedPointMathLib.sqrt(FullMath.mulDiv(a1, 1 << 192, a0)));
+    }
+
+    /// The treasury (#0) deposits and posts the mandate with terms() and its opening position.
+    function postMandate() public {
+        (bool usdcIs0, uint256 a0, uint256 a1) = deposits();
         Position memory p = initialPosition(a0, a1);
-        t0.approve(address(leash), a0);
-        t1.approve(address(leash), a1);
+        vm.startBroadcast(pk(TREASURY));
+        MockERC20(Currency.unwrap(key.currency0)).approve(address(leash), a0);
+        MockERC20(Currency.unwrap(key.currency1)).approve(address(leash), a1);
         leash.createMandate(key, openSqrtPriceX96, terms(usdcIs0, p.liquidity, anchorLiquidity(a0, a1)), a0, a1, p);
         vm.stopBroadcast();
+    }
 
-        bid(MANAGER1, BID1);
-        bid(MANAGER2, BID2); // outbids #1, whose bond becomes claimable via owed/claim
-        trade();
+    /// Deposit amounts in pool-currency order.
+    function deposits() internal view returns (bool usdcIs0, uint256 a0, uint256 a1) {
+        usdcIs0 = address(usdc) < address(tkn);
+        (a0, a1) = usdcIs0 ? (USDC_DEPOSIT, TKN_DEPOSIT) : (TKN_DEPOSIT, USDC_DEPOSIT);
     }
 
     /// Half of each deposit in a +-1200 tick (~12%) range around the opening price. A fifth goes to the full-range

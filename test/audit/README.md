@@ -95,8 +95,8 @@ A same-size re-range after a push is still allowed. That is the point of the des
 | Test | What it runs | Measured | Asserts |
 |---|---|---|---|
 | `test_C1_managerDrainsBySameBlockSandwichLoop` | `setFee(0)` reverts `FeeTooLow`; a 60-tick range reverts `RangeMissesTwap`; growth after a push reverts `SameBlock`. Then 20 loops of push to TWAP + 99, same-size re-range behind it, push back. | Manager P&L over 20 loops, including pay: **-0.0599** tokens | P&L <= 0 |
-| `test_C1_strongestLegalSandwich_arbitraged` | Two-block cycle at the 0.05% floor: block 1 shrink to `minLiquidity` in the narrowest range and push to TWAP + 99; an arbitrageur backruns; block 2 re-place everything legal at spot (falls back to same size when growth is refused) and sell back. 20 cycles. The manager stays clean. | Manager **-0.00303** per cycle; arbitrageur **+0.00259** per cycle | manager P&L <= 0 |
-| `test_C1_strongestLegalSandwich_managerOwnsBlockBoundary` | The same, but nobody trades between the push and the re-placement (the manager is last in block 1 and first in block 2). | Manager **-0.00047** per cycle | P&L <= 0 |
+| `test_C1_strongestLegalSandwich_arbitraged` | Two-block cycle at the 0.05% floor: block 1 shrink to `minLiquidity` in the narrowest range and push to TWAP + 99; an arbitrageur backruns; block 2 re-place everything legal at spot (falls back to same size when growth is refused) and sell back. 20 cycles. The manager stays clean. | Manager **-0.0029** per cycle; arbitrageur **+0.00259** per cycle | manager P&L <= 0 |
+| `test_C1_strongestLegalSandwich_managerOwnsBlockBoundary` | The same, but nobody trades between the push and the re-placement (the manager is last in block 1 and first in block 2). | Manager **-0.00089** per cycle | P&L <= 0 |
 
 ### C-2: Parking the price at MAX_TICK (Critical)
 
@@ -116,9 +116,9 @@ A same-size re-range after a push is still allowed. That is the point of the des
 
 | X (ticks) | TWAP after the drag | Cost to drag for one window | Extracted by re-placing | Cost / extracted |
 |---|---|---|---|---|
-| 300 | 300 | 4.2137 | 0.0264 | ~160x |
-| 600 | 600 | 16.5836 | 0.0776 | ~214x |
-| 1,200 | 1,200 | 65.8055 | 0.2070 | ~318x |
+| 300 | 300 | 4.6014 | 0.0264 | ~174x |
+| 600 | 600 | 18.1979 | 0.0776 | ~235x |
+| 1,200 | 1,200 | 72.1678 | 0.2070 | ~349x |
 
 The drag works (the TWAP really reaches X), and it is the arbitrageur who earns what the manager pays. The 5% growth cap is what keeps the extraction small.
 
@@ -159,7 +159,7 @@ The breach is real: holding the price at the edge for a whole window and longer 
 
 **Fix.** `MAX_EPOCHS = 104` (two years of weekly epochs), enforced in `createMandate` (`BadTerms`).
 
-**Test.** `test_L1_closeAfter365UnsettledEpochsExceedsTxGasCap`: 365 epochs reverts `BadTerms`; with 104 one-hour epochs, all unsettled, `close` (one checkpoint booking every epoch, then 104 settles, each poking the position) uses **8,605,708 gas**, under 16,777,216; `settled == 104`.
+**Test.** `test_L1_closeAfter365UnsettledEpochsExceedsTxGasCap`: 365 epochs reverts `BadTerms`; with 104 one-hour epochs, all unsettled, `close` (one checkpoint booking every epoch, then 104 settles, each poking the position) uses **8,610,615 gas**, under 16,777,216; `settled == 104`.
 
 The matching worst case for swaps is in the unit suite: `test_swap_afterQuietGapAcrossAllEpochs` measures 2,534,163 gas for the first swap after a quiet gap over 104 epochs.
 
@@ -267,11 +267,11 @@ The root README's claim for how dragging scales on 1-second blocks overstated th
 
 | X (ticks) | Drag cost | Extracted | Cost / extracted |
 |---|---|---|---|
-| 200 | 1.9029 | 0.0119 | ~160x |
-| 300 | 2.9677 | 0.0272 | ~109x |
-| 600 | 5.0293 | 0.1107 | ~45x |
+| 200 | 2.0689 | 0.0119 | ~174x |
+| 300 | 3.2904 | 0.0272 | ~121x |
+| 600 | 5.8316 | 0.1107 | ~53x |
 
-Asserts cost > gain at every X. With the C-2 table this gives the 45x to 320x range the root README quotes.
+Asserts cost > gain at every X. With the C-2 table this gives the 53x to 349x range the root README quotes.
 
 ### Coverage: anchor fees never pay the manager (expected to hold)
 

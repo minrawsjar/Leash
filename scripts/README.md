@@ -71,6 +71,14 @@ cast rpc evm_increaseTime 600 --rpc-url http://127.0.0.1:8545 && cast rpc evm_mi
 
 Local runs are throwaway: forge's records under `broadcast/Local.s.sol/31337/` are gitignored. `deployments/31337.json` is committed, and a fresh `local.sh` reproduces the same addresses, so the file only changes when `Local.s.sol` or Leash's bytecode changes (Leash's address depends on its init code through CREATE2).
 
+### demo.sh
+
+A narrated end-to-end run on its own fresh anvil (started and killed by the script), in about 40 seconds. It deploys through `script/Demo.s.sol` (which reuses `Local.s.sol`'s stack), then prints numbered steps with every value read back by `cast call` or `cast receipt`: the `ThinBond` rejection (a forge simulation, since a revert can't be broadcast), two bids and an outbid refund, a rebalance, the mispricing attempt refused with `SpotOffTwap`, a price nudge and a grow in one mined block where the grow reverts on chain with `SameBlock` (automine is switched off for that block), the off-TWAP fee surcharge, a clean epoch with manager pay and keeper bounty, a breached epoch with a partial slash, and `close` with everyone claiming. It exits non-zero if any expected revert doesn't happen. Time moves with `evm_increaseTime` and `evm_mine`, so fee amounts vary slightly between runs; the reverts, the clean epoch and the 33% slash don't.
+
+```bash
+./scripts/demo.sh            # full output also kept in docs/demo-output.txt
+```
+
 ### keeper.sh
 
 ```bash

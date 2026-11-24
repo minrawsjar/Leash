@@ -157,6 +157,15 @@ forge script script/Local.s.sol:Local --rpc-url http://127.0.0.1:8545 --broadcas
 
 `Local` also exposes `deployStack()`, `poolKey()`, `pk(i)` and `addr(i)` publicly; `test/Deploy.t.sol` and `test/Settle.t.sol` construct it and call `deployStack()` directly, without the JSON write.
 
+### Demo.s.sol
+
+`Demo is Local`, used only by [`scripts/demo.sh`](../scripts/README.md#demosh). `Local.s.sol`'s `deployStack()` is split into `deployContracts()`, `postMandate()` and `deposits()` so the demo can reuse them; `deployStack()` itself does the same as before.
+
+- `deploy()`: the local stack without bids or trades, plus approvals, and a simulated `createMandate` with a 1% `minBond` that must revert `ThinBond`.
+- `swapTo(router, key, who, tick)`: swaps through the local router until the pool reaches a given tick.
+
+It runs only against the demo's own anvil, with anvil's dev keys, and `--gas-estimate-multiplier 300` because forge's estimate for the price-moving swaps can come out low.
+
 ### Settle.s.sol
 
 One keeper round against the pool named in `deployments/<chainId>.json`. Superseded by [`../scripts/keeper.sh`](../scripts/README.md#keepersh), which finds every mandate from `MandateCreated` logs and applies these same rules with `cast`; `Settle` stays because `test/Settle.t.sol` tests the rules through `keep()`, and it still works for a file with a `pool` key (`31337.json`).

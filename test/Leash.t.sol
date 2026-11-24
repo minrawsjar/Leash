@@ -325,6 +325,26 @@ contract LeashTest is Test, Deployers {
         vm.stopPrank();
     }
 
+    /// Growing the managed position needs spot at the TWAP (within 2 ticks); re-ranging at the same size or smaller
+    /// only needs the usual maxTickDeviation.
+    function test_rebalance_growsOnlyWithSpotAtTwap() public {
+        _win();
+        _swapTo(false, 1e30, 60);
+        vm.roll(block.number + 1);
+        vm.warp(block.timestamp + 12);
+        vm.prank(alice);
+        vm.expectRevert(Leash.SpotOffTwap.selector);
+        leash.rebalance(key, -1200, 1200, 1_000e18 + 1);
+        vm.prank(alice);
+        leash.rebalance(key, -1200, 1200, 1_000e18);
+
+        _swapTo(true, 1e30, 0);
+        vm.roll(block.number + 1);
+        vm.warp(block.timestamp + 1 hours); // spot and TWAP agree again
+        vm.prank(alice);
+        leash.rebalance(key, -1200, 1200, 1_100e18);
+    }
+
     function test_rebalance_followsSustainedMove() public {
         _win();
         _swapTo(false, 100e18, 400);

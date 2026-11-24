@@ -95,6 +95,10 @@ uint256 constant BPS = 10_000;
 // any genuine market (a 30% crash is reflected in ~1 minute, a full window still converges to the new price) but a
 // price parked anywhere for one 12s block moves the recorded tick at most 600 ticks, and a 30-minute TWAP at most 4.
 int256 constant MAX_MOVE = 50;
+// The managed position may grow only with spot within 2 ticks (0.02%) of the TWAP. Re-placing L at spot d ticks off
+// fair loses the treasury at most ~L(d/20000)^2 when the price returns, while the trader moving it back pays
+// ~L(d/20000) times the fee: at d <= 2 that's a loss for the trader at any fee >= 0.01%.
+int256 constant MAX_GROW_GAP = 2;
 bytes32 constant ANCHOR = bytes32(uint256(1)); // salt of the full-range anchor; the managed position uses 0
 // ponytail: one checkpoint after a long quiet spell writes every epoch it spans (~23k gas each), and close() settles
 // every unsettled epoch (~80k each). 104 (two years of weekly epochs) keeps both under the 2^24 per-transaction gas
@@ -326,7 +330,11 @@ contract Leash is BaseHook, IUnlockCallback {
         m.lastRebalance = uint40(block.timestamp);
         int24 twap = _twap(id, m.terms.twapWindow);
         int256 gap = int256(spot) - twap;
-        if ((gap < 0 ? -gap : gap) > int256(uint256(m.terms.maxTickDeviation))) revert SpotOffTwap();
+        if (gap < 0) gap = -gap;
+        if (gap > int256(uint256(m.terms.maxTickDeviation))) revert SpotOffTwap();
+        // A sandwich only pays if the position is bigger on the way back than on the way out: growing it is
+        // allowed only with spot at the TWAP. Shrinking or re-ranging at the same size is symmetric, so fees lose.
+        if (liquidity > m.liquidity && gap > MAX_GROW_GAP) revert SpotOffTwap();
         _sweep(key, m);
         _checkpoint(key, m);
         (uint256 f0, uint256 f1) = _place(key, m, twap, spot, tickLower, tickUpper, liquidity);

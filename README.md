@@ -8,7 +8,7 @@
 ### Hire a market maker. Keep the leash.
 
 [![Uniswap v4](https://img.shields.io/badge/Uniswap%20v4-hook%20·%20flags%200x2880-4EF0B0?style=flat-square&labelColor=0B0D1F)](src/README.md)
-[![Unichain Sepolia](https://img.shields.io/badge/Unichain%20Sepolia-source%20verified-8B7BFF?style=flat-square&labelColor=0B0D1F)](https://unichain-sepolia.blockscout.com/address/0x9F1e080eFA57938d394e41d58702912371346880)
+[![Unichain Sepolia](https://img.shields.io/badge/Unichain%20Sepolia-source%20verified-8B7BFF?style=flat-square&labelColor=0B0D1F)](https://unichain-sepolia.blockscout.com/address/0xbB07E2C8C163063C602A2D00ddc97d5FacE76880)
 [![forge](https://img.shields.io/badge/forge-72%20passed-4EF0B0?style=flat-square&labelColor=0B0D1F)](test/README.md)
 [![CI](https://img.shields.io/github/actions/workflow/status/minrawsjar/Leash/test.yml?branch=main&style=flat-square&label=CI&labelColor=0B0D1F)](.github/workflows/test.yml)
 [![UHI11](https://img.shields.io/badge/UHI11-Hookathon-8B7BFF?style=flat-square&labelColor=0B0D1F)](#what-leash-is-live-today)
@@ -21,7 +21,7 @@
 
 It's live on Unichain Sepolia, built for the Uniswap Hook Incubator, cohort 11 (UHI11).
 
-[**Open the app**](https://leash-khaki.vercel.app/app) · [Landing page](https://leash-khaki.vercel.app) · [Verified hook on Blockscout](https://unichain-sepolia.blockscout.com/address/0x9F1e080eFA57938d394e41d58702912371346880) · [The contract, in full](src/README.md) · [Every audit finding](test/audit/README.md)
+[**Open the app**](https://leash-khaki.vercel.app/app) · [Landing page](https://leash-khaki.vercel.app) · [Verified hook on Blockscout](https://unichain-sepolia.blockscout.com/address/0xbB07E2C8C163063C602A2D00ddc97d5FacE76880) · [The contract, in full](src/README.md) · [Every audit finding](test/audit/README.md)
 
 ![The whole of Leash: the treasury, the manager and the keeper on the left; the Leash hook in the middle with its ledger, TWAP oracle, bond auction, compliance clock, rebalance guards and settlement; Uniswap's v4 PoolManager and the treasury-only pool on the right; the web app and AI drafter below; inventory moves only between the hook and the pool, or back to the treasury](docs/diagrams/leash.png)
 
@@ -255,7 +255,7 @@ Only measured values. Sources: `forge build --sizes`, `forge test`, `forge cover
 
 | Contract | Address |
 |---|---|
-| **Leash** (hook, source verified) | [`0x9F1e080eFA57938d394e41d58702912371346880`](https://unichain-sepolia.blockscout.com/address/0x9F1e080eFA57938d394e41d58702912371346880) |
+| **Leash** (hook, source verified) | [`0xbB07E2C8C163063C602A2D00ddc97d5FacE76880`](https://unichain-sepolia.blockscout.com/address/0xbB07E2C8C163063C602A2D00ddc97d5FacE76880) |
 | **PoolManager** (Uniswap v4) | [`0x00B036B58a818B1BC34d502D3fE730Db729e62AC`](https://unichain-sepolia.blockscout.com/address/0x00B036B58a818B1BC34d502D3fE730Db729e62AC) |
 | Test TKN / mUSDC (open mint, from [`deployments/1301-tokens.json`](deployments/1301-tokens.json)) | `0x2E8D07593389DDB1d84421D41e1d5fe120DCd99C` / `0xd010B2D159a9F43Ce22CDD038c7CC6BfBb2aaE3E` |
 

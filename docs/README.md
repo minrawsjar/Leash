@@ -1,17 +1,27 @@
-# Docs: README Images
+# Docs: Images and Diagrams
 
-> **Two image files used by the top-level README.**
-
-This folder holds the images the repository's [`../README.md`](../README.md) embeds. Nothing in the build reads from it.
+> **Every image the READMEs and the site use, and the sources that draw them.**
 
 ## Files
 
-| File | Format | Used in | What it shows |
-|---|---|---|---|
-| [`logo.svg`](logo.svg) | SVG, 64x64 viewBox | `README.md` line 1, at `width="64"` | The Leash mark: a handle loop, a slack lead and a snap clip, dark strokes (`#0b0d1f`) on a rounded mint square (`#4ef0b0`) |
-| [`hero.png`](hero.png) | PNG, 1440 x 900, about 200 KB | `README.md` line 9 | A screenshot of the landing page: the headline "Keep the leash." beside a live mandate chart, price and TWAP inside the range, with the bond on the line |
+| File | What it is | Used in |
+|---|---|---|
+| `logo.svg` | The Leash mark: a mint rounded square with a handle loop, a lead and a snap clip | Same drawing as `frontend/src/Mark.tsx` and `frontend/public/favicon.svg` |
+| `wordmark-dark.png`, `wordmark-light.png` | The mark plus "leash" in Poppins 800 and the tagline; light text for GitHub's dark mode, dark text for light mode | The root README's header, inside `<picture>` |
+| `hero.png` | A screenshot of the landing page's hero | Kept for sharing; no README embeds it now |
+| `diagrams/leash.png`, `.svg` | The whole system: who acts, the hook's parts, Uniswap v4, the app | Root README, header |
+| `diagrams/lifecycle.png`, `.svg` | Post, auction, active epochs, settle (pay or partial/full slash), close and claim | Root README, "The life of a mandate" |
+| `diagrams/mispricing.png`, `.svg` | The four-step mispricing attack and the guard that stops each step | Root README, "How the hook keeps the leash" |
+| `diagrams/money.png`, `.svg` | Where money can go: the per-mandate ledger and every allowed flow | Root README, "Where the money can go" |
+| `diagrams/src/` | The sources: one HTML page per diagram, `lib.js` (rough.js shapes), the Excalifont and Virgil fonts, and `render.mjs` | Re-render after any change |
 
-## Copies Elsewhere
+## Re-rendering
 
-- `frontend/public/favicon.svg` is a byte-identical copy of `logo.svg`, served as the app's favicon by `frontend/index.html`. Change both together.
-- The landing page itself does not load `hero.png`; the screenshot is only for the README. The live page is in [`../frontend/`](../frontend/README.md).
+Each diagram is an HTML page that draws an SVG with rough.js. `render.mjs` serves the folder, opens the page in headless Chrome, screenshots it at 2x and saves the SVG with its fonts embedded.
+
+```bash
+node docs/diagrams/src/render.mjs leash.html docs/diagrams/leash.png docs/diagrams/leash.svg
+node docs/diagrams/src/render.mjs wordmark.html docs/wordmark-dark.png --transparent   # see wordmark.html for the light variant
+```
+
+It needs Google Chrome at `/Applications/Google Chrome.app`. Open each PNG after rendering: the script reports text that overflows its box, but not arrows that point the wrong way.

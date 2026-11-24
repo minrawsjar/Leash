@@ -21,7 +21,7 @@ In page order, all in [`Site.tsx`](Site.tsx).
 | **Duo** | | Two cards: "Run a treasury?" (Post a mandate) and "Make markets?" (Bid for a mandate) |
 | **Footer** | `#footer` | The mark, section links, app links, and GitHub, `Leash.sol` and Blockscout |
 
-The hook address (`0x9F1e…6880`), the repo, the `Leash.sol` link and the Blockscout link are constants at the top of `Site.tsx`. `APP` is `./app`, relative, so the links work under any base path.
+The hook address (`0xbB07…6880`), the repo, the `Leash.sol` link and the Blockscout link are constants at the top of `Site.tsx`. `APP` is `./app`, relative, so the links work under any base path.
 
 ## How the Page Is Put Together
 

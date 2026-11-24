@@ -8,7 +8,7 @@ const cv = (o: Record<string, string | number>) => o as CSSProperties;
 const APP = './app';
 const REPO = 'https://github.com/minrawsjar/Leash';
 const SOURCE = `${REPO}/blob/main/src/Leash.sol`;
-const HOOK = '0x9F1e080eFA57938d394e41d58702912371346880';
+const HOOK = '0xbB07E2C8C163063C602A2D00ddc97d5FacE76880';
 const SCAN = `https://unichain-sepolia.blockscout.com/address/${HOOK}`;
 
 const Chevron = () => (

@@ -97,8 +97,8 @@ On start it reads the chain id from the RPC, then `leash` and `block` from `depl
 Dry run against Unichain Sepolia (one mandate so far, already closed):
 
 ```
-[23:29:27] keeper on chain 1301, leash 0x9F1e080eFA57938d394e41d58702912371346880, logs from block 68664352, dry run
-[23:29:33] found mandate 0x137826902a9552c220d2ebfb7c7d7d615c127a5d7087fda73794a6a5992964b6 (0x2E8D07593389DDB1d84421D41e1d5fe120DCd99C,0xd010B2D159a9F43Ce22CDD038c7CC6BfBb2aaE3E,8388608,60,0x9F1e080eFA57938d394e41d58702912371346880)
+[23:29:27] keeper on chain 1301, leash 0xbB07E2C8C163063C602A2D00ddc97d5FacE76880, logs from block 68691824, dry run
+[23:29:33] found mandate 0x137826902a9552c220d2ebfb7c7d7d615c127a5d7087fda73794a6a5992964b6 (0x2E8D07593389DDB1d84421D41e1d5fe120DCd99C,0xd010B2D159a9F43Ce22CDD038c7CC6BfBb2aaE3E,8388608,60,0xbB07E2C8C163063C602A2D00ddc97d5FacE76880)
 [23:29:40] round: 1 mandate(s), logs scanned to 68690740
   0x137826902a9552c220d2ebfb7c7d7d615c127a5d7087fda73794a6a5992964b6
     closed: skip

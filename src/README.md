@@ -20,7 +20,7 @@ From [`deployments/1301.json`](../deployments/1301.json) (deployed at block 68,6
 
 | Contract | Address |
 |---|---|
-| **Leash** (hook, source verified) | [`0x9F1e080eFA57938d394e41d58702912371346880`](https://unichain-sepolia.blockscout.com/address/0x9F1e080eFA57938d394e41d58702912371346880) |
+| **Leash** (hook, source verified) | [`0xbB07E2C8C163063C602A2D00ddc97d5FacE76880`](https://unichain-sepolia.blockscout.com/address/0xbB07E2C8C163063C602A2D00ddc97d5FacE76880) |
 | **PoolManager** (Uniswap v4, Unichain Sepolia) | [`0x00B036B58a818B1BC34d502D3fE730Db729e62AC`](https://unichain-sepolia.blockscout.com/address/0x00B036B58a818B1BC34d502D3fE730Db729e62AC) |
 
 The hook address ends in `0x2880`. v4 reads a hook's permissions from the low 14 bits of its address, so the salt is mined (see [`../script/README.md`](../script/README.md), `HookMiner.sol`) until the address encodes exactly `beforeInitialize | beforeAddLiquidity | beforeSwap`.

@@ -32,7 +32,9 @@ From [`1301.json`](1301.json) and [`1301-tokens.json`](1301-tokens.json). Explor
 
 | Contract | Address | Notes |
 |---|---|---|
-| **Leash** (hook) | [`0x9F1e080eFA57938d394e41d58702912371346880`](https://unichain-sepolia.blockscout.com/address/0x9F1e080eFA57938d394e41d58702912371346880) | Current. Low 14 bits `0x2880`. Deployed at block 68664352 (`block` in the file) |
+| **Leash** (hook) | [`0xbB07E2C8C163063C602A2D00ddc97d5FacE76880`](https://unichain-sepolia.blockscout.com/address/0xbB07E2C8C163063C602A2D00ddc97d5FacE76880) | Current, source verified. Low 14 bits `0x2880`. Deployed at block 68691843; `block` in the file is 68691824, the simulation's block, which only has to be at or before it |
+| **LeashOracle** (linked library) | [`0x6562531d91b9bB6e64b030bf54a4cC68d312786f`](https://unichain-sepolia.blockscout.com/address/0x6562531d91b9bB6e64b030bf54a4cC68d312786f) | Source verified. CREATE2 through the deterministic deployer, so the same address on every chain; Leash calls it for `observe` and `twap` |
+| Leash (previous build) | [`0x9F1e080eFA57938d394e41d58702912371346880`](https://unichain-sepolia.blockscout.com/address/0x9F1e080eFA57938d394e41d58702912371346880) | Superseded: before the per-swap fee, partial slash, keeper bounty and bond floor. Its one mandate is closed |
 | **PoolManager** (Uniswap v4) | [`0x00B036B58a818B1BC34d502D3fE730Db729e62AC`](https://unichain-sepolia.blockscout.com/address/0x00B036B58a818B1BC34d502D3fE730Db729e62AC) | Uniswap's deployment; the default in `DeployLeash.s.sol` |
 | **TKN** "Leash Test Token" | [`0x2E8D07593389DDB1d84421D41e1d5fe120DCd99C`](https://unichain-sepolia.blockscout.com/address/0x2E8D07593389DDB1d84421D41e1d5fe120DCd99C) | solmate `MockERC20`, 18 decimals, anyone can mint |
 | **mUSDC** "Mock USDC" | [`0xd010B2D159a9F43Ce22CDD038c7CC6BfBb2aaE3E`](https://unichain-sepolia.blockscout.com/address/0xd010B2D159a9F43Ce22CDD038c7CC6BfBb2aaE3E) | solmate `MockERC20`, 6 decimals, anyone can mint |
@@ -105,7 +107,7 @@ Forge writes one record per broadcast run to `broadcast/<Script>.s.sol/<chainId>
 
 | Folder | Runs | What they did |
 |---|---|---|
-| `broadcast/DeployLeash.s.sol/1301/` | 2 | `run-1795515766584`: CREATE2 of Leash at `0x2D01...2880` (superseded). `run-1795516800888` (= `run-latest`): CREATE2 of Leash at `0x9F1e...6880`, tx [`0xd51b0f9e...a433`](https://unichain-sepolia.blockscout.com/tx/0xd51b0f9e610555b0c1af73f616386e9c253b78d07fab324eae680f47a155a433) |
+| `broadcast/DeployLeash.s.sol/1301/` | 3 | `run-1795515766584`: CREATE2 of Leash at `0x2D01...2880` (superseded). `run-1795516800888`: CREATE2 of Leash at `0x9F1e...6880` (superseded), tx [`0xd51b0f9e...a433`](https://unichain-sepolia.blockscout.com/tx/0xd51b0f9e610555b0c1af73f616386e9c253b78d07fab324eae680f47a155a433). The latest run (= `run-latest`): CREATE2 of `LeashOracle` at `0x6562...786f`, then Leash at `0xbB07...6880` |
 | `broadcast/Tokens.s.sol/1301/` | 3 | `run-1795524411144`: `Tokens`, two CREATEs and two mints. `run-1795524453674` and `run-1795537325904`: `Faucet`, two mints each. Forge files `Faucet` runs here too because the record is keyed by the script file |
 | `broadcast/Local.s.sol/31337/` | local only | Gitignored (`/broadcast/*/31337/`) |
 | `broadcast/**/dry-run/` | simulations | Gitignored |

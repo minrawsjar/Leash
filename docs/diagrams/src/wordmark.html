@@ -1,0 +1,31 @@
+<!doctype html>
+<meta charset="utf-8">
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;800&display=swap" rel="stylesheet">
+<style>
+  html, body { margin: 0; background: transparent; }
+  #root { display: inline-flex; align-items: center; gap: 30px; padding: 16px 24px; }
+  .word { font: 800 132px/0.9 Poppins, sans-serif; letter-spacing: -0.035em; margin: 0 0 14px; }
+  .tag { font: 500 25px/1 Poppins, sans-serif; letter-spacing: 0.01em; margin-top: 4px; }
+  .light .word { color: #0b0d1f; } .light .tag { color: #4b4f63; }
+  .dark .word { color: #eef0ff; } .dark .tag { color: #a3a8c9; }
+  .tag b { font-weight: 500; color: #1fbf86; } .dark .tag b { color: #4ef0b0; }
+</style>
+<div id="root">
+  <svg width="140" height="140" viewBox="0 0 64 64">
+    <rect x="2" y="2" width="60" height="60" rx="18" fill="#4ef0b0"/>
+    <g fill="none" stroke="#0b0d1f" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M21.5 29C12.5 25 11 12.5 19.5 11.5S30 20 23.5 29" stroke-width="4.8"/>
+      <path d="M22.5 29.5C23 41 31 44 40 44" stroke-width="4.8"/>
+      <path d="M40 44h4.5" stroke-width="7"/>
+      <path d="M45 44h2.5a5 5 0 0 1 0 10H45" stroke-width="3.6"/>
+    </g>
+  </svg>
+  <div>
+    <div class="word">leash</div>
+    <div class="tag">treasury market making <b>·</b> a Uniswap v4 hook</div>
+  </div>
+</div>
+<script>
+  document.getElementById('root').className = new URLSearchParams(location.search).get('mode') || 'light';
+  document.fonts.ready.then(() => document.fonts.load('800 132px Poppins')).then(() => document.fonts.ready).then(() => { window.__done = true; });
+</script>

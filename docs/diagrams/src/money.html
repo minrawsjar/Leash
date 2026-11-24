@@ -1,0 +1,38 @@
+<!doctype html>
+<meta charset="utf-8">
+<style>@font-face{font-family:Excali;src:url(Excalifont.woff2)}@font-face{font-family:Virgil;src:url(Virgil.woff2)}body{margin:0;background:#fff}#root{display:inline-block}</style>
+<div id="root"></div>
+<script src="rough.js"></script>
+<script src="lib.js"></script>
+<script>
+document.fonts.load('16px Excali').then(() => {
+const D = sketch({ w: 1340, h: 880,
+  title: 'Where the money can go',
+  sub: 'inventory moves only between the hook and the pool, or back to the treasury · the manager gets its pay and its own bond, through claim, and nothing else' });
+
+D.box(30, 160, 250, 130, 'Treasury\ndeposits token + stablecoin;\nthe only one who gets the\ninventory back', 'grey', { head: true });
+D.box(30, 470, 250, 120, 'Manager\nposts the bond; moves the\nrange; sets the fee', 'violet', { head: true });
+
+D.panel(460, 130, 420, 500, 'Leash hook · the per-mandate ledger', 'mint', { fill: '#f4fffa' });
+D.box(480, 180, 380, 90, 'idle0 · idle1\nthis mandate\'s inventory outside the pool', 'mint', { head: true });
+D.box(480, 285, 380, 90, 'fees0 · fees1\nLP fees collected, kept out of idle', 'mint', { head: true });
+D.box(480, 390, 380, 100, 'owed[account][currency]\npull payments: pay, returned or outbid\nbonds, slashed bonds owed to the treasury', 'mint', { head: true });
+D.box(480, 505, 380, 100, 'bond\nin the stablecoin, ≥ 2% of the deposit;\nslashed to the treasury, in part or all', 'violet', { head: true });
+
+D.box(1080, 230, 230, 200, 'v4 pool\nmanaged range\n+ full-range anchor;\nnobody else can add\nliquidity', 'mint', { head: true });
+D.box(1080, 520, 230, 90, 'Swappers and\narbitrageurs', 'grey');
+
+D.arrow([[280, 195], [460, 195]], { label: 'createMandate:\ndeposit', lx: 370, ly: 172 });
+D.arrow([[460, 250], [280, 250]], { label: 'close: all idle + fees', lx: 370, ly: 270 });
+D.arrow([[460, 430], [370, 430], [370, 290]], { label: 'claim: slashed\nbond', lx: 370, ly: 360 });
+D.arrow([[280, 560], [460, 560]], { label: 'bid: bond', lx: 370, ly: 580 });
+D.arrow([[460, 500], [280, 500]], { label: 'claim: pay + own bond', lx: 370, ly: 520 });
+D.arrow([[880, 280], [1080, 280]], { label: 'rebalance: add', lx: 980, ly: 262 });
+D.arrow([[1080, 370], [880, 370]], { label: 'rebalance, close:\nremove + fees', lx: 980, ly: 395 });
+D.arrow([[1195, 520], [1195, 430]], { both: true, label: 'swaps', lx: 1195, ly: 475 });
+
+D.box(30, 660, 850, 105, 'No path to the manager\nrebalance and setFee take no recipient. A rebalance that needs more than this\nmandate\'s idle underflows: not the bond, not another mandate, not unsettled fees.', 'rose', { head: true });
+D.box(30, 785, 1280, 70, 'Checked after every action: hook balance = Σ (idle + fees) + Σ owed + bonds held.   invariant_hookHoldsExactlyItsLedger\nand invariant_managersGainOnlyTheirPay, 128 runs × 100 random calls each, 0 failures.', 'mintStrong', { size: 16 });
+D.done();
+});
+</script>

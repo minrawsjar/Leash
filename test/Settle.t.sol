@@ -49,16 +49,14 @@ contract SettleTest is Test {
         assertGt(m.idle1, before.idle1, "pre-mandate fees went to the treasury (1)");
         assertEq(m.lastCheck, block.timestamp);
         assertEq(leash.epochRecord(id, 0).inSecs, len / 2, "first half of epoch 0 booked in compliance");
-        (checkpointed,) = keeper.keep(leash, key);
-        assertFalse(checkpointed, "same second: nothing new to book");
 
         vm.warp(start + len + 1); // epoch 0 ended, epoch 1 running
         assertEq(_kept(), _seq(0, 1));
         assertEq(leash.epochRecord(id, 0).inSecs, len, "all of epoch 0 in compliance");
         assertFalse(leash.epochRecord(id, 1).settled, "running epoch untouched");
         (checkpointed, n) = keeper.keep(leash, key);
-        assertFalse(checkpointed);
-        assertEq(n, 0, "no-op when run again");
+        assertTrue(checkpointed, "keeps booking epoch 1");
+        assertEq(n, 0, "nothing more to settle when run again");
 
         vm.warp(start + 3 * len + 1 days); // well past the end: epochs 1 and 2 remain
         assertEq(_kept(), _seq(1, 3));

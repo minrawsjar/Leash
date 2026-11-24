@@ -59,11 +59,10 @@ contract Settle is Script {
         }
 
         // Each interval between checkpoints books "in" only if compliant at both ends, so call it every round
-        // while there is time to book (same conditions as Leash._checkpoint) or fees to sweep.
+        // until the whole mandate is booked, or while fees await their sweep. Not gated on block.timestamp:
+        // on an idle chain the simulated block is stale, while the tx itself lands at the real time.
         uint256 end = start + uint256(m.terms.epochLength) * m.terms.epochs;
-        uint256 from = m.lastCheck > start ? m.lastCheck : start;
-        uint256 to = block.timestamp < end ? block.timestamp : end;
-        if (!m.swept || (m.manager != address(0) && !m.breached && from < to)) {
+        if (!m.swept || (m.manager != address(0) && !m.breached && m.lastCheck < end)) {
             leash.checkpoint(key);
             checkpointed = true;
             (bool inRange, bool deep, bool onPace, uint16 stableBps) = leash.compliance(key);

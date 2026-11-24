@@ -10,8 +10,18 @@ import { leashAbi, type Key, type Terms } from './chain.ts';
 export type Ctx = { pub: PublicClient; wallet: WalletClient; account: Address; leash: Address };
 export type Position = { tickLower: number; tickUpper: number; liquidity: bigint };
 
-async function call(ctx: Ctx, functionName: string, args: unknown[]): Promise<Hex> {
-  const { request } = await ctx.pub.simulateContract({ address: ctx.leash, abi: leashAbi, functionName, args, account: ctx.account });
+async function call(ctx: Ctx, functionName: string, args: unknown[], afterApprove = false): Promise<Hex> {
+  const sim = () => ctx.pub.simulateContract({ address: ctx.leash, abi: leashAbi, functionName, args, account: ctx.account });
+  // Public RPCs sit behind load balancers: right after an approval lands, the node that answers the simulation can be a
+  // block behind and still see the old allowance. Give it a few seconds before believing a transfer failure.
+  let res: Awaited<ReturnType<typeof sim>> | undefined;
+  for (let i = 0; ; i++) {
+    try { res = await sim(); break; } catch (e) {
+      if (!afterApprove || i >= 5 || !/TRANSFER_FROM_FAILED|allowance/i.test(String((e as Error)?.message ?? e))) throw e;
+      await new Promise((r) => setTimeout(r, 1500));
+    }
+  }
+  const { request } = res;
   const hash = await ctx.wallet.writeContract({ ...request, account: ctx.account, chain: ctx.wallet.chain } as never);
   const r = await ctx.pub.waitForTransactionReceipt({ hash });
   if (r.status !== 'success') throw new Error('The transaction reverted on-chain.');
@@ -31,13 +41,13 @@ export async function approve(ctx: Ctx, tokenAddr: Address, amount: bigint): Pro
 export const approveMax = (ctx: Ctx, tokenAddr: Address) => approve(ctx, tokenAddr, maxUint256);
 
 export async function createMandate(ctx: Ctx, key: Key, sqrtPriceX96: bigint, t: Terms, amount0: bigint, amount1: bigint, initial: Position) {
-  await approve(ctx, key.currency0, amount0);
-  await approve(ctx, key.currency1, amount1);
-  return call(ctx, 'createMandate', [key, sqrtPriceX96, t, amount0, amount1, initial]);
+  const a = await approve(ctx, key.currency0, amount0);
+  const b = await approve(ctx, key.currency1, amount1);
+  return call(ctx, 'createMandate', [key, sqrtPriceX96, t, amount0, amount1, initial], !!(a || b));
 }
 export async function bid(ctx: Ctx, key: Key, stable: Address, amount: bigint) {
-  await approve(ctx, stable, amount);
-  return call(ctx, 'bid', [key, amount]);
+  const a = await approve(ctx, stable, amount);
+  return call(ctx, 'bid', [key, amount], !!a);
 }
 export const rebalance = (ctx: Ctx, key: Key, lo: number, hi: number, liq: bigint) => call(ctx, 'rebalance', [key, lo, hi, liq]);
 export const setFee = (ctx: Ctx, key: Key, fee: number) => call(ctx, 'setFee', [key, fee]);

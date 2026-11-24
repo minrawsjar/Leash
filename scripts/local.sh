@@ -20,14 +20,19 @@ until cast chain-id --rpc-url $RPC >/dev/null 2>&1; do
   sleep 0.2
 done
 
+# Anvil stamps a burst of blocks with the same second; space them 1s apart so the swapper's trades
+# land in separate seconds and reach Leash's oracle (one observation per second).
+cast rpc anvil_setBlockTimestampInterval 1 --rpc-url $RPC >/dev/null
 forge script script/Local.s.sol:Local --rpc-url $RPC --broadcast --slow
+cast rpc anvil_removeBlockTimestampInterval --rpc-url $RPC >/dev/null
 mkdir -p deployments/abi
 jq .abi out/Leash.sol/Leash.json >deployments/abi/Leash.json
 
 cat <<EOF
 
 Leash local chain ready at $RPC (chain 31337). Addresses: deployments/31337.json, ABI: deployments/abi/Leash.json
-Accounts (anvil's default mnemonic): #0 treasury, #1 and #2 managers (#2 leads the auction), #3 swapper.
+Accounts (anvil's default mnemonic): #0 treasury, #1 and #2 managers (#2 leads the auction), #3 swapper,
+#4 keeper (scripts/keeper.sh).
 Auction closes 10 min after deploy; epochs are 1 hour x 3. Skip ahead with:
   cast rpc evm_increaseTime 600 --rpc-url $RPC && cast rpc evm_mine --rpc-url $RPC
 Streaming anvil's log below. Ctrl-C stops the chain.

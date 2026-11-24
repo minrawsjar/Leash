@@ -844,6 +844,46 @@
   },
   {
     "type": "function",
+    "name": "checkpoint",
+    "inputs": [
+      {
+        "name": "key",
+        "type": "tuple",
+        "internalType": "struct PoolKey",
+        "components": [
+          {
+            "name": "currency0",
+            "type": "address",
+            "internalType": "Currency"
+          },
+          {
+            "name": "currency1",
+            "type": "address",
+            "internalType": "Currency"
+          },
+          {
+            "name": "fee",
+            "type": "uint24",
+            "internalType": "uint24"
+          },
+          {
+            "name": "tickSpacing",
+            "type": "int24",
+            "internalType": "int24"
+          },
+          {
+            "name": "hooks",
+            "type": "address",
+            "internalType": "contract IHooks"
+          }
+        ]
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "claim",
     "inputs": [
       {
@@ -894,6 +934,67 @@
     ],
     "outputs": [],
     "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "compliance",
+    "inputs": [
+      {
+        "name": "key",
+        "type": "tuple",
+        "internalType": "struct PoolKey",
+        "components": [
+          {
+            "name": "currency0",
+            "type": "address",
+            "internalType": "Currency"
+          },
+          {
+            "name": "currency1",
+            "type": "address",
+            "internalType": "Currency"
+          },
+          {
+            "name": "fee",
+            "type": "uint24",
+            "internalType": "uint24"
+          },
+          {
+            "name": "tickSpacing",
+            "type": "int24",
+            "internalType": "int24"
+          },
+          {
+            "name": "hooks",
+            "type": "address",
+            "internalType": "contract IHooks"
+          }
+        ]
+      }
+    ],
+    "outputs": [
+      {
+        "name": "inRange",
+        "type": "bool",
+        "internalType": "bool"
+      },
+      {
+        "name": "deep",
+        "type": "bool",
+        "internalType": "bool"
+      },
+      {
+        "name": "onPace",
+        "type": "bool",
+        "internalType": "bool"
+      },
+      {
+        "name": "stableBps",
+        "type": "uint16",
+        "internalType": "uint16"
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -970,6 +1071,41 @@
             "name": "minBond",
             "type": "uint256",
             "internalType": "uint256"
+          },
+          {
+            "name": "twapWindow",
+            "type": "uint32",
+            "internalType": "uint32"
+          },
+          {
+            "name": "maxTickDeviation",
+            "type": "uint24",
+            "internalType": "uint24"
+          },
+          {
+            "name": "minLiquidity",
+            "type": "uint128",
+            "internalType": "uint128"
+          },
+          {
+            "name": "uptimeBps",
+            "type": "uint16",
+            "internalType": "uint16"
+          },
+          {
+            "name": "managerFeeBps",
+            "type": "uint16",
+            "internalType": "uint16"
+          },
+          {
+            "name": "startStableBps",
+            "type": "uint16",
+            "internalType": "uint16"
+          },
+          {
+            "name": "endStableBps",
+            "type": "uint16",
+            "internalType": "uint16"
           }
         ]
       },
@@ -982,6 +1118,28 @@
         "name": "amount1",
         "type": "uint256",
         "internalType": "uint256"
+      },
+      {
+        "name": "initial",
+        "type": "tuple",
+        "internalType": "struct Position",
+        "components": [
+          {
+            "name": "tickLower",
+            "type": "int24",
+            "internalType": "int24"
+          },
+          {
+            "name": "tickUpper",
+            "type": "int24",
+            "internalType": "int24"
+          },
+          {
+            "name": "liquidity",
+            "type": "uint128",
+            "internalType": "uint128"
+          }
+        ]
       }
     ],
     "outputs": [
@@ -992,6 +1150,108 @@
       }
     ],
     "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "currentEpoch",
+    "inputs": [
+      {
+        "name": "key",
+        "type": "tuple",
+        "internalType": "struct PoolKey",
+        "components": [
+          {
+            "name": "currency0",
+            "type": "address",
+            "internalType": "Currency"
+          },
+          {
+            "name": "currency1",
+            "type": "address",
+            "internalType": "Currency"
+          },
+          {
+            "name": "fee",
+            "type": "uint24",
+            "internalType": "uint24"
+          },
+          {
+            "name": "tickSpacing",
+            "type": "int24",
+            "internalType": "int24"
+          },
+          {
+            "name": "hooks",
+            "type": "address",
+            "internalType": "contract IHooks"
+          }
+        ]
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "epochRecord",
+    "inputs": [
+      {
+        "name": "id",
+        "type": "bytes32",
+        "internalType": "PoolId"
+      },
+      {
+        "name": "epoch",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "tuple",
+        "internalType": "struct EpochRecord",
+        "components": [
+          {
+            "name": "inSecs",
+            "type": "uint32",
+            "internalType": "uint32"
+          },
+          {
+            "name": "outSecs",
+            "type": "uint32",
+            "internalType": "uint32"
+          },
+          {
+            "name": "fees0",
+            "type": "uint128",
+            "internalType": "uint128"
+          },
+          {
+            "name": "fees1",
+            "type": "uint128",
+            "internalType": "uint128"
+          },
+          {
+            "name": "settled",
+            "type": "bool",
+            "internalType": "bool"
+          },
+          {
+            "name": "clean",
+            "type": "bool",
+            "internalType": "bool"
+          }
+        ]
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -1120,6 +1380,16 @@
             "internalType": "uint256"
           },
           {
+            "name": "fees0",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "fees1",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
             "name": "tickLower",
             "type": "int24",
             "internalType": "int24"
@@ -1135,7 +1405,32 @@
             "internalType": "uint128"
           },
           {
+            "name": "lastCheck",
+            "type": "uint40",
+            "internalType": "uint40"
+          },
+          {
+            "name": "settled",
+            "type": "uint16",
+            "internalType": "uint16"
+          },
+          {
+            "name": "lastOk",
+            "type": "bool",
+            "internalType": "bool"
+          },
+          {
+            "name": "breached",
+            "type": "bool",
+            "internalType": "bool"
+          },
+          {
             "name": "closed",
+            "type": "bool",
+            "internalType": "bool"
+          },
+          {
+            "name": "swept",
             "type": "bool",
             "internalType": "bool"
           },
@@ -1173,6 +1468,41 @@
                 "name": "minBond",
                 "type": "uint256",
                 "internalType": "uint256"
+              },
+              {
+                "name": "twapWindow",
+                "type": "uint32",
+                "internalType": "uint32"
+              },
+              {
+                "name": "maxTickDeviation",
+                "type": "uint24",
+                "internalType": "uint24"
+              },
+              {
+                "name": "minLiquidity",
+                "type": "uint128",
+                "internalType": "uint128"
+              },
+              {
+                "name": "uptimeBps",
+                "type": "uint16",
+                "internalType": "uint16"
+              },
+              {
+                "name": "managerFeeBps",
+                "type": "uint16",
+                "internalType": "uint16"
+              },
+              {
+                "name": "startStableBps",
+                "type": "uint16",
+                "internalType": "uint16"
+              },
+              {
+                "name": "endStableBps",
+                "type": "uint16",
+                "internalType": "uint16"
               }
             ]
           }
@@ -1275,6 +1605,30 @@
   },
   {
     "type": "function",
+    "name": "records",
+    "inputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "clean",
+        "type": "uint32",
+        "internalType": "uint32"
+      },
+      {
+        "name": "breached",
+        "type": "uint32",
+        "internalType": "uint32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "setFee",
     "inputs": [
       {
@@ -1320,6 +1674,97 @@
   },
   {
     "type": "function",
+    "name": "settle",
+    "inputs": [
+      {
+        "name": "key",
+        "type": "tuple",
+        "internalType": "struct PoolKey",
+        "components": [
+          {
+            "name": "currency0",
+            "type": "address",
+            "internalType": "Currency"
+          },
+          {
+            "name": "currency1",
+            "type": "address",
+            "internalType": "Currency"
+          },
+          {
+            "name": "fee",
+            "type": "uint24",
+            "internalType": "uint24"
+          },
+          {
+            "name": "tickSpacing",
+            "type": "int24",
+            "internalType": "int24"
+          },
+          {
+            "name": "hooks",
+            "type": "address",
+            "internalType": "contract IHooks"
+          }
+        ]
+      },
+      {
+        "name": "epoch",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "twapTick",
+    "inputs": [
+      {
+        "name": "key",
+        "type": "tuple",
+        "internalType": "struct PoolKey",
+        "components": [
+          {
+            "name": "currency0",
+            "type": "address",
+            "internalType": "Currency"
+          },
+          {
+            "name": "currency1",
+            "type": "address",
+            "internalType": "Currency"
+          },
+          {
+            "name": "fee",
+            "type": "uint24",
+            "internalType": "uint24"
+          },
+          {
+            "name": "tickSpacing",
+            "type": "int24",
+            "internalType": "int24"
+          },
+          {
+            "name": "hooks",
+            "type": "address",
+            "internalType": "contract IHooks"
+          }
+        ]
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "int24",
+        "internalType": "int24"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "unlockCallback",
     "inputs": [
       {
@@ -1338,8 +1783,208 @@
     "stateMutability": "nonpayable"
   },
   {
+    "type": "event",
+    "name": "Bid",
+    "inputs": [
+      {
+        "name": "id",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "PoolId"
+      },
+      {
+        "name": "bidder",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "Closed",
+    "inputs": [
+      {
+        "name": "id",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "PoolId"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "EpochSettled",
+    "inputs": [
+      {
+        "name": "id",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "PoolId"
+      },
+      {
+        "name": "epoch",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "clean",
+        "type": "bool",
+        "indexed": false,
+        "internalType": "bool"
+      },
+      {
+        "name": "pay0",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "pay1",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "slashed",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "FeeSet",
+    "inputs": [
+      {
+        "name": "id",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "PoolId"
+      },
+      {
+        "name": "fee",
+        "type": "uint24",
+        "indexed": false,
+        "internalType": "uint24"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "MandateCreated",
+    "inputs": [
+      {
+        "name": "id",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "PoolId"
+      },
+      {
+        "name": "treasury",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "key",
+        "type": "tuple",
+        "indexed": false,
+        "internalType": "struct PoolKey",
+        "components": [
+          {
+            "name": "currency0",
+            "type": "address",
+            "internalType": "Currency"
+          },
+          {
+            "name": "currency1",
+            "type": "address",
+            "internalType": "Currency"
+          },
+          {
+            "name": "fee",
+            "type": "uint24",
+            "internalType": "uint24"
+          },
+          {
+            "name": "tickSpacing",
+            "type": "int24",
+            "internalType": "int24"
+          },
+          {
+            "name": "hooks",
+            "type": "address",
+            "internalType": "contract IHooks"
+          }
+        ]
+      },
+      {
+        "name": "amount0",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "amount1",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "Rebalanced",
+    "inputs": [
+      {
+        "name": "id",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "PoolId"
+      },
+      {
+        "name": "tickLower",
+        "type": "int24",
+        "indexed": false,
+        "internalType": "int24"
+      },
+      {
+        "name": "tickUpper",
+        "type": "int24",
+        "indexed": false,
+        "internalType": "int24"
+      },
+      {
+        "name": "liquidity",
+        "type": "uint128",
+        "indexed": false,
+        "internalType": "uint128"
+      }
+    ],
+    "anonymous": false
+  },
+  {
     "type": "error",
     "name": "AuctionClosed",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "BadEpoch",
     "inputs": []
   },
   {
@@ -1349,7 +1994,7 @@
   },
   {
     "type": "error",
-    "name": "Closed",
+    "name": "Breached",
     "inputs": []
   },
   {
@@ -1370,6 +2015,11 @@
   {
     "type": "error",
     "name": "LowBid",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "MandateClosed",
     "inputs": []
   },
   {
@@ -1405,6 +2055,21 @@
   {
     "type": "error",
     "name": "NotTreasury",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "RangeMissesTwap",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "SpotOffTwap",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "TooShallow",
     "inputs": []
   }
 ]

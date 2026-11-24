@@ -9,16 +9,20 @@ import {PoolSwapTest} from "v4-core/test/PoolSwapTest.sol";
 import {IHooks} from "v4-core/interfaces/IHooks.sol";
 import {LPFeeLibrary} from "v4-core/libraries/LPFeeLibrary.sol";
 import {FullMath} from "v4-core/libraries/FullMath.sol";
+import {TickMath} from "v4-core/libraries/TickMath.sol";
+import {SwapParams} from "v4-core/types/PoolOperation.sol";
+import {LiquidityAmounts} from "v4-periphery/src/libraries/LiquidityAmounts.sol";
 import {PoolKey} from "v4-core/types/PoolKey.sol";
 import {PoolId, PoolIdLibrary} from "v4-core/types/PoolId.sol";
 import {Currency} from "v4-core/types/Currency.sol";
 import {MockERC20} from "solmate/src/test/utils/mocks/MockERC20.sol";
 import {FixedPointMathLib} from "solmate/src/utils/FixedPointMathLib.sol";
-import {Leash, Terms} from "../src/Leash.sol";
+import {Leash, Terms, Position} from "../src/Leash.sol";
 import {DeployLeash} from "./DeployLeash.s.sol";
 
-/// @notice Fresh v4 + Leash on anvil with one live mandate: treasury (#0) deposited, managers #1 and #2
-///         bid (#2 leads, #1's bond is claimable), auction still open. Writes deployments/31337.json.
+/// @notice Fresh v4 + Leash on anvil with one live mandate: treasury (#0) deposited with half its inventory
+///         in the opening position, managers #1 and #2 bid (#2 leads, #1's bond is claimable), swapper #3
+///         traded a little (oracle observations, LP fees), auction still open. Writes deployments/31337.json.
 contract Local is DeployLeash {
     using PoolIdLibrary for PoolKey;
 
@@ -40,6 +44,7 @@ contract Local is DeployLeash {
     Leash public leash;
     PoolKey public key;
     PoolId public id;
+    uint160 public openSqrtPriceX96;
     uint256 public deployBlock;
 
     function run() external override {
@@ -75,24 +80,65 @@ contract Local is DeployLeash {
             Currency.wrap(address(t0)), Currency.wrap(address(t1)), LPFeeLibrary.DYNAMIC_FEE_FLAG, 60, IHooks(address(leash))
         );
         id = key.toId();
-        uint160 sqrtPriceX96 = uint160(FixedPointMathLib.sqrt(FullMath.mulDiv(a1, 1 << 192, a0)));
-
-        // ponytail: today's Terms/createMandate; the new contract adds TWAP/compliance terms and an initial Position.
-        Terms memory t = Terms({
-            stableIs0: usdcIs0,
-            maxFee: 10_000, // 1%
-            auctionEnd: uint40(block.timestamp + 10 minutes),
-            epochLength: 1 hours,
-            epochs: 3,
-            minBond: BID1
-        });
+        openSqrtPriceX96 = uint160(FixedPointMathLib.sqrt(FullMath.mulDiv(a1, 1 << 192, a0)));
+        Position memory p = initialPosition(a0, a1);
         t0.approve(address(leash), a0);
         t1.approve(address(leash), a1);
-        leash.createMandate(key, sqrtPriceX96, t, a0, a1);
+        leash.createMandate(key, openSqrtPriceX96, terms(usdcIs0, p.liquidity), a0, a1, p);
         vm.stopBroadcast();
 
         bid(MANAGER1, BID1);
         bid(MANAGER2, BID2); // outbids #1, whose bond becomes claimable via owed/claim
+        trade();
+    }
+
+    /// Half of each deposit in a +-1200 tick (~12%) range around the opening price; the rest stays idle.
+    function initialPosition(uint256 a0, uint256 a1) internal view returns (Position memory p) {
+        int24 base = TickMath.getTickAtSqrtPrice(openSqrtPriceX96) / 60 * 60;
+        (p.tickLower, p.tickUpper) = (base - 1200, base + 1200);
+        p.liquidity = LiquidityAmounts.getLiquidityForAmounts(
+            openSqrtPriceX96,
+            TickMath.getSqrtPriceAtTick(p.tickLower),
+            TickMath.getSqrtPriceAtTick(p.tickUpper),
+            a0 / 2,
+            a1 / 2
+        );
+    }
+
+    function terms(bool usdcIs0, uint128 liquidity) internal view returns (Terms memory) {
+        return Terms({
+            stableIs0: usdcIs0,
+            maxFee: 10_000, // 1%
+            auctionEnd: uint40(block.timestamp + 10 minutes), // must outlast twapWindow
+            epochLength: 1 hours,
+            epochs: 3,
+            minBond: BID1,
+            twapWindow: 120,
+            maxTickDeviation: 100,
+            minLiquidity: liquidity / 2,
+            uptimeBps: 9500,
+            managerFeeBps: 3000,
+            startStableBps: 6000, // inventory opens at 50% stablecoin by value, so it starts on pace
+            endStableBps: 8000
+        });
+    }
+
+    /// A few small trades by #3, so the oracle has observations and the position has earned fees.
+    function trade() internal {
+        vm.startBroadcast(pk(SWAPPER));
+        tkn.approve(address(swapRouter), type(uint256).max);
+        usdc.approve(address(swapRouter), type(uint256).max);
+        swap(usdc, 1_000e6); // buy TKN
+        swap(tkn, 300e18); // sell TKN
+        swap(usdc, 500e6);
+        vm.stopBroadcast();
+    }
+
+    /// Exact-input swap of `amount` of `tokenIn`, no price limit.
+    function swap(MockERC20 tokenIn, uint256 amount) internal {
+        bool zeroForOne = Currency.unwrap(key.currency0) == address(tokenIn);
+        uint160 limit = zeroForOne ? TickMath.MIN_SQRT_PRICE + 1 : TickMath.MAX_SQRT_PRICE - 1;
+        swapRouter.swap(key, SwapParams(zeroForOne, -int256(amount), limit), PoolSwapTest.TestSettings(false, false), "");
     }
 
     function bid(uint32 who, uint256 amount) internal {
@@ -127,6 +173,11 @@ contract Local is DeployLeash {
         vm.serializeAddress(o, "usdc", address(usdc));
         vm.serializeString(o, "pool", pool);
         vm.writeJson(vm.serializeString(o, "accounts", accounts), deploymentPath());
+    }
+
+    /// The public `key` getter returns a tuple; this returns the struct.
+    function poolKey() external view returns (PoolKey memory) {
+        return key;
     }
 
     function pk(uint32 i) public pure returns (uint256) {

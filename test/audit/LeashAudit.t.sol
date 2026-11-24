@@ -339,4 +339,75 @@ contract LeashAuditTest is Test, Deployers {
         emit log_named_uint("close() gas", used);
         assertLt(used, 1 << 24, "close fits under the EIP-7825 tx gas cap");
     }
+
+    // ================================================================ coverage: post-end judging
+
+    /// Safe: checkpoints after the end judge [lastCheck, end) by the state at that time, while the manager is locked
+    /// out. But any price move needs a swap, and its beforeSwap checkpoints before moving, so a post-end move can't
+    /// re-judge the final interval.
+    function test_safe_postEndMoveCannotRejudgeFinalInterval() public {
+        _win();
+        _keep(auctionEnd + 3 days - 2 hours);
+        vm.warp(auctionEnd + 3 days + 1); // mandate over; a genuine move happens
+        _swapToTick(eve, 900);
+        vm.prank(alice);
+        vm.expectRevert(Leash.NotActive.selector);
+        leash.rebalance(key, 600, 1200, 1_000e18);
+        _next(1 hours);
+        leash.close(key);
+        EpochRecord memory e = leash.epochRecord(key.toId(), 2);
+        emit log_named_uint("final epoch outSecs", e.outSecs);
+        assertTrue(e.clean, "manager breached for a move that happened after the mandate ended");
+    }
+
+    // ================================================================ coverage: oracle ring buffer
+
+    uint32[] obsTime;
+    int24[] obsTickAfter; // tick in force after obsTime[k]
+
+    /// Integral of the tick over (from, now], from the recorded history. Floor division, like _twap.
+    function _refTwap(uint256 window) internal view returns (int24) {
+        uint256 n = obsTime.length;
+        uint256 oldest = n > 1024 ? obsTime[n - 1024] : obsTime[0];
+        uint256 from = block.timestamp - window < oldest ? oldest : block.timestamp - window;
+        int256 sum;
+        for (uint256 k; k < n; k++) {
+            uint256 a = obsTime[k];
+            uint256 b = k + 1 < n ? obsTime[k + 1] : block.timestamp;
+            if (b <= from) continue;
+            if (a < from) a = from;
+            sum += int256(obsTickAfter[k]) * int256(b - a);
+        }
+        int256 dt = int256(block.timestamp - from);
+        int256 q = sum / dt;
+        if (sum < 0 && sum % dt != 0) q--;
+        return int24(q);
+    }
+
+    /// Safe: 1,200 swaps in 1,200 blocks (wraps the 1024-slot buffer) with uneven gaps; the TWAP matches a
+    /// brute-force reference at many query points, including window edges and the shortened-history case.
+    function test_safe_oracleWraparoundMatchesReference() public {
+        _win();
+        vm.prank(alice);
+        leash.setFee(key, 0);
+        obsTime.push(uint32(block.timestamp - 1 days)); // creation observation
+        obsTickAfter.push(0);
+        // _win's checkpoint wrote no observation; the first swap below writes one at its block.
+        uint256 seed = 1;
+        for (uint256 i; i < 1200; i++) {
+            seed = uint256(keccak256(abi.encode(seed)));
+            _next(i < 600 ? 1 + seed % 3 : 1); // 1s blocks at the end: held history (~1450s) < window
+
+            obsTime.push(uint32(block.timestamp));
+            int24 to = int24(int256(seed >> 8) % 500);
+            _swapToTick(eve, to == _tick() ? to + 1 : to);
+            obsTickAfter.push(_tick());
+            if (i % 97 == 0 || i > 1190) assertEq(leash.twapTick(key), _refTwap(1800), "twap after swap");
+        }
+        uint256[6] memory gaps = [uint256(0), 1, 7, 600, 1799, 1801];
+        for (uint256 j; j < gaps.length; j++) {
+            vm.warp(block.timestamp + gaps[j]);
+            assertEq(leash.twapTick(key), _refTwap(1800), "twap after quiet gap");
+        }
+    }
 }

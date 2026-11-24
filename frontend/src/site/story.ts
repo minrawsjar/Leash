@@ -15,15 +15,15 @@ export type Theme = Record<'bg' | 'fg' | 'muted' | 'line' | 'mark' | 'anchor' | 
 const tok = (n: string): RGBA => [...getComputedStyle(document.documentElement).getPropertyValue(`--${n}-rgb`).trim().split(/\s+/).map(Number), 1] as RGBA;
 const a = (c: RGBA, alpha: number): RGBA => [c[0], c[1], c[2], alpha];
 
-export let THEMES = {} as Record<'dark' | 'violet' | 'cream' | 'mint', Theme>;
+export let THEMES = {} as Record<'base' | 'second' | 'inverse' | 'mark', Theme>;
 /** Builds THEMES from the stylesheet's tokens; call once mounted (the stylesheet must be applied). */
 export function readThemes() {
-  const INK = tok('ink'), CREAM = tok('cream'), MINT = tok('mint'), VIOLET = tok('violet'), ROSE = tok('rose');
+  const BG = tok('bg'), TEXT = tok('text'), MARK = tok('mark'), SECOND = tok('second'), DANGER = tok('danger');
   THEMES = {
-    dark: { bg: INK, fg: CREAM, muted: tok('muted'), line: a(CREAM, 0.14), mark: MINT, anchor: a(CREAM, 0.22), bond: VIOLET, card: tok('raised'), good: MINT, bad: ROSE },
-    violet: { bg: VIOLET, fg: INK, muted: a(INK, 0.68), line: a(INK, 0.2), mark: INK, anchor: a(INK, 0.22), bond: INK, card: a(INK, 0.1), good: INK, bad: ROSE },
-    cream: { bg: CREAM, fg: INK, muted: a(INK, 0.7), line: a(INK, 0.14), mark: INK, anchor: a(INK, 0.18), bond: VIOLET, card: a(INK, 0.06), good: INK, bad: ROSE },
-    mint: { bg: MINT, fg: INK, muted: a(INK, 0.66), line: a(INK, 0.18), mark: INK, anchor: a(INK, 0.2), bond: INK, card: a(INK, 0.08), good: INK, bad: ROSE },
+    base: { bg: BG, fg: TEXT, muted: tok('muted'), line: a(TEXT, 0.14), mark: MARK, anchor: a(TEXT, 0.22), bond: SECOND, card: tok('raised'), good: MARK, bad: DANGER },
+    second: { bg: SECOND, fg: BG, muted: a(BG, 0.68), line: a(BG, 0.2), mark: BG, anchor: a(BG, 0.22), bond: BG, card: a(BG, 0.1), good: BG, bad: DANGER },
+    inverse: { bg: TEXT, fg: BG, muted: a(BG, 0.7), line: a(BG, 0.14), mark: BG, anchor: a(BG, 0.18), bond: SECOND, card: a(BG, 0.06), good: BG, bad: DANGER },
+    mark: { bg: MARK, fg: BG, muted: a(BG, 0.66), line: a(BG, 0.18), mark: BG, anchor: a(BG, 0.2), bond: BG, card: a(BG, 0.08), good: BG, bad: DANGER },
   };
 }
 const lerp = (x: number, y: number, t: number) => x + (y - x) * t;
@@ -47,7 +47,7 @@ const MOVED = [14, 20]; // after the rebalance
 export function createStory(canvas: HTMLCanvasElement) {
   const ctx = canvas.getContext('2d')!;
   let W = 0, H = 0;
-  let scene: Scene = 'deposit', p = 0, th: Theme = THEMES.dark;
+  let scene: Scene = 'deposit', p = 0, th: Theme = THEMES.base;
 
   function resize() {
     const r = canvas.getBoundingClientRect();

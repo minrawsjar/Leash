@@ -1,68 +1,71 @@
-/* Leash design tokens. Every colour is an RGB triplet (`--x-rgb`), so CSS writes rgb(var(--x-rgb) / alpha) and the
-   canvases read the same tokens. A palette overrides only the triplets. Never black/orange. */
+/* Leash design tokens: paper and cobalt, in light and dark. Every colour is an RGB triplet (`--x-rgb`), so CSS
+   writes rgb(var(--x-rgb) / alpha) and the canvases read the same tokens. index.html sets data-theme before the
+   first paint (the person's choice, else the system's); theme.ts switches it. Roles:
+   bg/surface/raised/lift: grounds, back to front · text/muted/faint: type · mark: the one accent (cobalt)
+   second: manager and bond, sparingly (teal) · danger: breach and slash only (crimson). Never black/orange. */
 :root {
-  --ink-rgb: 11 13 31; /* ground */
-  --surface-rgb: 17 20 43;
-  --raised-rgb: 24 28 58;
-  --lift-rgb: 34 39 73;
-  --cream-rgb: 238 240 255; /* text */
-  --muted-rgb: 163 168 201;
-  --faint-rgb: 108 113 153;
-  --mint-rgb: 78 240 176; /* the one bright mark */
-  --soft-rgb: 159 247 211; /* links and highlights in the mark's hue */
-  --violet-rgb: 139 123 255; /* secondary, sparingly: manager / bond */
-  --violet-soft-rgb: 164 151 255;
-  --rose-rgb: 255 93 143; /* breach / slash only */
-  --shadow-rgb: 5 6 18;
-  color-scheme: dark;
+  --bg-rgb: 245 242 235; /* warm paper */
+  --surface-rgb: 251 250 246;
+  --raised-rgb: 255 255 255;
+  --lift-rgb: 235 230 218;
+  --text-rgb: 21 23 30; /* ink */
+  --muted-rgb: 84 90 105;
+  --faint-rgb: 116 122 137;
+  --mark-rgb: 43 78 224; /* cobalt */
+  --mark-soft-rgb: 36 66 194; /* links and highlights in the mark's hue, readable on paper */
+  --second-rgb: 11 122 107; /* teal */
+  --second-soft-rgb: 22 150 132;
+  --danger-rgb: 204 47 80; /* crimson */
+  --shadow-rgb: 60 52 30;
+  color-scheme: light;
 
-  --ink: rgb(var(--ink-rgb));
+  --bg: rgb(var(--bg-rgb));
   --surface: rgb(var(--surface-rgb));
   --raised: rgb(var(--raised-rgb));
   --lift: rgb(var(--lift-rgb));
-  --cream: rgb(var(--cream-rgb));
+  --text: rgb(var(--text-rgb));
   --muted: rgb(var(--muted-rgb));
   --faint: rgb(var(--faint-rgb));
-  --line: rgb(var(--cream-rgb) / 0.12);
-  --mint: rgb(var(--mint-rgb));
-  --soft: rgb(var(--soft-rgb));
-  --violet: rgb(var(--violet-rgb));
-  --violet-soft: rgb(var(--violet-soft-rgb));
-  --rose: rgb(var(--rose-rgb));
+  --line: rgb(var(--text-rgb) / 0.12);
+  --mark: rgb(var(--mark-rgb));
+  --mark-soft: rgb(var(--mark-soft-rgb));
+  --second: rgb(var(--second-rgb));
+  --second-soft: rgb(var(--second-soft-rgb));
+  --danger: rgb(var(--danger-rgb));
   --display: "Poppins", system-ui, sans-serif;
   --mono: "JetBrains Mono", ui-monospace, monospace;
   --gutter: clamp(20px, 5.5vw, 88px);
   --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
   --nav-h: 88px;
 }
-/* Candidate palettes, previewed with ?palette=<name> (index.html sets data-palette). */
-:root[data-palette="forest"] { /* deep forest green and brass: a treasury's colours */
-  --ink-rgb: 13 23 20; --surface-rgb: 19 32 28; --raised-rgb: 26 42 37; --lift-rgb: 35 54 49;
-  --cream-rgb: 242 239 228; --muted-rgb: 170 181 172; --faint-rgb: 116 130 122;
-  --mint-rgb: 227 187 92; --soft-rgb: 241 216 158; --violet-rgb: 141 187 232; --violet-soft-rgb: 172 206 240; --rose-rgb: 240 116 112;
-  --shadow-rgb: 4 9 7;
-}
-:root[data-palette="lime"] { /* midnight navy and electric lime, sky blue second */
-  --ink-rgb: 10 15 29; --surface-rgb: 16 24 43; --raised-rgb: 22 33 58; --lift-rgb: 31 43 72;
-  --cream-rgb: 238 242 251; --muted-rgb: 158 170 198; --faint-rgb: 107 119 150;
-  --mint-rgb: 198 241 91; --soft-rgb: 224 248 166; --violet-rgb: 95 184 255; --violet-soft-rgb: 143 205 255; --rose-rgb: 255 95 126;
-  --shadow-rgb: 4 7 15;
-}
-:root[data-palette="paper"] { /* light: warm paper, ink-black text, cobalt mark, teal second */
-  --ink-rgb: 245 242 235; --surface-rgb: 251 250 246; --raised-rgb: 255 255 255; --lift-rgb: 235 230 218;
-  --cream-rgb: 21 23 30; --muted-rgb: 84 90 105; --faint-rgb: 116 122 137;
-  --mint-rgb: 43 78 224; --soft-rgb: 36 66 194; --violet-rgb: 11 122 107; --violet-soft-rgb: 22 150 132; --rose-rgb: 204 47 80;
-  --shadow-rgb: 60 52 30;
-  color-scheme: light;
-}
-:root[data-palette="plum"] { /* aubergine and butter yellow, sky blue second */
-  --ink-rgb: 22 15 31; --surface-rgb: 30 21 41; --raised-rgb: 40 28 54; --lift-rgb: 51 37 69;
-  --cream-rgb: 245 239 250; --muted-rgb: 182 169 196; --faint-rgb: 127 113 147;
-  --mint-rgb: 245 212 94; --soft-rgb: 249 230 163; --violet-rgb: 124 197 242; --violet-soft-rgb: 160 214 246; --rose-rgb: 255 107 142;
-  --shadow-rgb: 9 5 14;
+/* Dark: the same paper and cobalt, at night. A warm charcoal ground, paper-white type, a lighter cobalt. */
+:root[data-theme="dark"] {
+  --bg-rgb: 19 21 27;
+  --surface-rgb: 26 29 37;
+  --raised-rgb: 34 38 48;
+  --lift-rgb: 44 49 61;
+  --text-rgb: 238 236 230;
+  --muted-rgb: 166 169 179;
+  --faint-rgb: 123 127 140;
+  --mark-rgb: 123 149 255;
+  --mark-soft-rgb: 169 186 255;
+  --second-rgb: 69 201 179;
+  --second-soft-rgb: 120 219 202;
+  --danger-rgb: 255 112 136;
+  --shadow-rgb: 4 5 8;
+  color-scheme: dark;
 }
 * { box-sizing: border-box; }
-html { background: var(--ink); scroll-behavior: smooth; }
-body { margin: 0; background: var(--ink); color: var(--cream); font: 400 17px/1.6 var(--display); -webkit-font-smoothing: antialiased; }
+html { background: var(--bg); scroll-behavior: smooth; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 400 17px/1.6 var(--display); -webkit-font-smoothing: antialiased; }
 a { color: inherit; }
-:focus-visible { outline: 2px solid var(--soft); outline-offset: 3px; border-radius: 6px; }
+:focus-visible { outline: 2px solid var(--mark-soft); outline-offset: 3px; border-radius: 6px; }
+
+/* The light/dark switch, in both nav bars. */
+.theme-toggle {
+  display: inline-grid; place-items: center; flex: none; width: 38px; height: 38px; padding: 0;
+  border: 1px solid var(--line); border-radius: 999px; background: none; color: var(--muted); cursor: pointer;
+  transition: color 0.2s, border-color 0.2s;
+}
+.theme-toggle:hover { color: var(--text); border-color: rgb(var(--text-rgb) / 0.3); }
+.theme-toggle svg { width: 17px; height: 17px; }

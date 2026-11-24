@@ -2,6 +2,7 @@ import { Mark } from '../Mark';
 import { useEffect, useRef, type CSSProperties, type JSX } from 'react';
 import { AttackChart } from '../AttackChart';
 import { mount } from './motion';
+import { ThemeToggle } from '../ThemeToggle';
 import './site.css';
 
 const cv = (o: Record<string, string | number>) => o as CSSProperties;
@@ -57,6 +58,7 @@ export function Site() {
             <button className="menu__trigger" type="button" aria-expanded="false" aria-controls="menu-protocol">Protocol <Chevron /></button>
             <button className="menu__trigger" type="button" aria-expanded="false" aria-controls="menu-resources">Resources <Chevron /></button>
           </nav>
+          <ThemeToggle />
           <a className="btn btn--primary btn--small nav__cta" href={APP}>Launch app</a>
           <button className="menu__toggle" type="button" aria-expanded="false" aria-controls="menu-sheet" aria-label="Menu"><span></span><span></span></button>
           <div className="menu__sheet" id="menu-sheet">
@@ -103,7 +105,6 @@ export function Site() {
         <section className="hero" aria-labelledby="hero-title">
           <canvas className="hero__canvas" aria-label="Illustration: a price line moving inside a manager's range. One epoch settles clean; in the next the average leaves the range and the bond is slashed." role="img" />
           <div className="hero__copy">
-            <a className="hero__new rise" style={cv({ '--d': 0 })} href={SCAN} target="_blank" rel="noopener noreferrer"><b>Live</b> Unichain Sepolia, source verified →</a>
             <h1 className="display hero__title" id="hero-title">
               <span className="line"><span className="word" style={cv({ '--d': 1 })}>Keep</span></span>
               <span className="line"><span className="word" style={cv({ '--d': 2 })}>the</span></span>
@@ -206,15 +207,15 @@ export function Site() {
               </div>
             </div>
             <div className="tour__tiles">
-              <article className="tile tile--mint" data-reveal>
+              <article className="tile tile--mark" data-reveal>
                 <h3>Bonds in the stablecoin. Outbid ones, claimable at once.</h3>
                 <div className="tile__art tile__bids" aria-hidden="true"><span style={cv({ '--i': 0 })}>18,000</span><span style={cv({ '--i': 1 })}>22,500</span><span className="is-top" style={cv({ '--i': 2 })}>25,000 USDC</span></div>
               </article>
-              <article className="tile tile--ink" data-reveal style={cv({ '--d': 1 })}>
+              <article className="tile tile--bg" data-reveal style={cv({ '--d': 1 })}>
                 <h3>The manager sets the fee, inside the floor and the cap.</h3>
                 <div className="tile__art tile__fee" aria-hidden="true"><i></i><b></b><span><em>floor</em><em>cap</em></span></div>
               </article>
-              <article className="tile tile--violet" data-reveal style={cv({ '--d': 2 })}>
+              <article className="tile tile--second" data-reveal style={cv({ '--d': 2 })}>
                 <h3>Compliance is counted in seconds, not swaps.</h3>
                 <div className="tile__art tile__clock" aria-hidden="true">{Array.from({ length: 24 }, (_, i) => <i key={i} className={i === 17 ? 'is-out' : ''} style={cv({ '--i': i })} />)}</div>
               </article>
@@ -278,7 +279,7 @@ export function Site() {
               <p className="proof__addr">{HOOK.slice(0, 6)}…{HOOK.slice(-4)}<small>Leash hook · source verified</small></p>
               <a className="round" href={SCAN} target="_blank" rel="noopener noreferrer" aria-label="Open the hook on Blockscout"><Arrow /></a>
             </article>
-            <article className="proof__card proof__card--mint" data-reveal style={cv({ '--d': 1 })}>
+            <article className="proof__card proof__card--mark" data-reveal style={cv({ '--d': 1 })}>
               <h3>Audited, then audited again.</h3>
               <ul className="proof__audit">
                 <li><b>Audit</b><span>2 critical, 1 high, 2 medium, 1 low found and fixed. Each attack kept as a regression test.</span></li>
@@ -291,17 +292,17 @@ export function Site() {
                 <div className="ledger__ring">
                   <svg viewBox="0 0 120 120" aria-hidden="true">
                     <circle className="ledger__track" cx="60" cy="60" r="50" />
-                    {['var(--mint)', 'var(--soft)', 'var(--violet)', 'var(--cream)'].map((c, i) => (
+                    {['var(--mark)', 'var(--mark-soft)', 'var(--second)', 'var(--text)'].map((c, i) => (
                       <circle key={c} className="ledger__arc" cx="60" cy="60" r="50" style={cv({ '--c': c, '--i': i })} transform={`rotate(${4 + i * 90} 60 60)`} />
                     ))}
                   </svg>
                   <p><b data-count="4">4</b><small>terms</small></p>
                 </div>
                 <ul className="ledger__list">
-                  <li style={cv({ '--c': 'var(--mint)' })}><b>In range</b><span>TWAP inside it</span></li>
-                  <li style={cv({ '--c': 'var(--soft)' })}><b>Depth</b><span>at or over floor</span></li>
-                  <li style={cv({ '--c': 'var(--violet)' })}><b>Pace</b><span>under glide path</span></li>
-                  <li style={cv({ '--c': 'var(--cream)' })}><b>Fee</b><span>under cap, when set</span></li>
+                  <li style={cv({ '--c': 'var(--mark)' })}><b>In range</b><span>TWAP inside it</span></li>
+                  <li style={cv({ '--c': 'var(--mark-soft)' })}><b>Depth</b><span>at or over floor</span></li>
+                  <li style={cv({ '--c': 'var(--second)' })}><b>Pace</b><span>under glide path</span></li>
+                  <li style={cv({ '--c': 'var(--text)' })}><b>Fee</b><span>under cap, when set</span></li>
                 </ul>
               </div>
             </article>
@@ -327,7 +328,7 @@ export function Site() {
         </section>
 
         <section className="duo" aria-label="Get started">
-          <article className="duo__card duo__card--mint" data-reveal>
+          <article className="duo__card duo__card--mark" data-reveal>
             <h2 className="display">Run a treasury?</h2>
             <p>Post a mandate: your tokens, your terms, and a bond auction for the right to run them. Only you can take the inventory out.</p>
             <a className="btn btn--dark" href={APP}>Post a mandate</a>

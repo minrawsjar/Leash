@@ -1,5 +1,6 @@
 // The Leash dApp at /app. Hash routes: #/ mandates (#/?who=<address> filters), #/managers, #/create, #/m/<poolId>[/<tab>].
 import { Mark } from '../Mark';
+import { ThemeToggle } from '../ThemeToggle';
 import { useEffect, useState } from 'react';
 import type { Hex } from 'viem';
 import { NETS, short, type Net } from './chain.ts';
@@ -52,6 +53,7 @@ export function App() {
               <a href="../">About</a>
             </nav>
             <div className="lx-right">
+              <ThemeToggle />
               <label className="net">
                 <span className="net-dot" aria-hidden />
                 <span className="sr">Network</span>

@@ -5,7 +5,7 @@ import { THEMES, blendTheme, createStory, css, readThemes, type Scene } from './
 
 const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v));
 const SCENES: Scene[] = ['deposit', 'auction', 'manage', 'checks', 'settle'];
-const LOOK: (keyof typeof THEMES)[] = ['dark', 'violet', 'cream', 'mint', 'dark'];
+const LOOK: (keyof typeof THEMES)[] = ['base', 'second', 'inverse', 'mark', 'base'];
 const STILL = [0.92, 0.95, 0.95, 0.9, 0.95]; // each scene's most telling moment, for the still version
 
 export function mount(root: HTMLElement) {
@@ -29,6 +29,7 @@ export function mount(root: HTMLElement) {
   // ── story ───────────────────────────────────────────────────────────────
   const story = $('.story'), stage = $('.story__stage');
   const steps = $$('.step'), rail = $$('.rail li');
+  let retheme = () => {}; // the light/dark toggle repaints the story in place
   if (reduced) {
     // No pinning: each scene is its own block, its canvas stopped at its key moment.
     const stills = steps.map((step, i) => {
@@ -45,6 +46,13 @@ export function mount(root: HTMLElement) {
       return s;
     });
     void document.fonts?.ready.then(() => stills.forEach((s) => s.redraw()));
+    retheme = () => stills.forEach((s, i) => {
+      const theme = THEMES[LOOK[i]];
+      steps[i].style.setProperty('--step-bg', css(theme.bg));
+      steps[i].style.setProperty('--step-fg', css(theme.fg));
+      s.setTheme(theme);
+      s.redraw();
+    });
   } else {
     const s = createStory($<HTMLCanvasElement>('.story__canvas'));
     let shown = -1;
@@ -69,7 +77,9 @@ export function mount(root: HTMLElement) {
     update();
     void document.fonts?.ready.then(update);
     off.push(() => s.destroy());
+    retheme = update;
   }
+  addEventListener('leash-theme', () => { readThemes(); retheme(); }, sig);
 
   // ── the phone takes turns between its screens ───────────────────────────
   const phone = $('.phone');

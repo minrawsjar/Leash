@@ -3,17 +3,17 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#0b0d1f" />
+    <meta name="theme-color" content="#f5f2eb" />
     <title>Leash — hire a market maker, keep the leash</title>
     <meta name="description" content="Hire a market maker for your treasury without handing over the keys. A Uniswap v4 hook holds the tokens, checks every swap against its own TWAP, pays a clean epoch and slashes a breach." />
     <script>
-      // Palette preview: ?palette=forest|lime|paper|plum (remembered), ?palette=default to reset.
-      try {
-        const q = new URLSearchParams(location.search).get('palette');
-        if (q) localStorage.setItem('leash.palette', q === 'default' ? '' : q);
-        const p = localStorage.getItem('leash.palette');
-        if (p) document.documentElement.dataset.palette = p;
-      } catch {}
+      // Paper (light) unless the person switched to dark, before the first paint (ThemeToggle.tsx switches it).
+      (function () {
+        var m = null;
+        try { m = localStorage.getItem('leash.theme'); } catch (e) {}
+        document.documentElement.dataset.theme = m === 'dark' ? 'dark' : 'light';
+        if (m === 'dark') document.querySelector('meta[name="theme-color"]').setAttribute('content', '#13151b');
+      })();
     </script>
     <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />

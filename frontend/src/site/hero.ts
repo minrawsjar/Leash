@@ -18,7 +18,7 @@ const wrap = (s: number) => ((s % P) + P) % P;
 
 // The theme's colours (theme.css `--x-rgb` triplets), as "r, g, b" for rgba().
 const tok = (n: string) => getComputedStyle(document.documentElement).getPropertyValue(`--${n}-rgb`).trim().split(/\s+/).join(', ');
-let C = { ink: '', cream: '', mint: '', violet: '', rose: '' }; // read in mountHero, once the stylesheet is applied
+let C = { bg: '', text: '', mark: '', second: '', danger: '' }; // read in mountHero, once the stylesheet is applied
 const rgba = (c: string, a: number) => `rgba(${c}, ${a.toFixed(3)})`;
 
 // ── the path, precomputed once ───────────────────────────────────────────
@@ -94,7 +94,9 @@ const LH = 22;
 const START = 3; // the loop opens calm, inside the range, with the one-block push still ahead
 
 export function mountHero(hero: HTMLElement, canvas: HTMLCanvasElement, { reduced, freeze }: { reduced: boolean; freeze: number | null }) {
-  C = { ink: tok('ink'), cream: tok('cream'), mint: tok('mint'), violet: tok('violet'), rose: tok('rose') };
+  const read = () => { C = { bg: tok('bg'), text: tok('text'), mark: tok('mark'), second: tok('second'), danger: tok('danger') }; };
+  read();
+  addEventListener('leash-theme', read); // the light/dark toggle: the next frame draws in the new colours
   const ctx = canvas.getContext('2d')!;
   let W = 0, H = 0, cw = 7.2, cols = 0;
   let rows: string[] = [];
@@ -150,7 +152,7 @@ export function mountHero(hero: HTMLElement, canvas: HTMLCanvasElement, { reduce
     ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
     const fade = g.narrow ? ctx.createLinearGradient(0, 0, 0, H) : ctx.createLinearGradient(0, 0, W, 0);
     const stops: [number, number][] = g.narrow ? [[0, 0.07], [Math.min(0.9, 300 / H), 0.07], [Math.min(0.95, 350 / H), 0]] : [[0, 0], [0.4, 0], [0.56, 0.085], [1, 0.085]];
-    for (const [at, a] of stops) fade.addColorStop(at, rgba(C.cream, a));
+    for (const [at, a] of stops) fade.addColorStop(at, rgba(C.text, a));
     ctx.fillStyle = fade;
     const top = LH / 2 - offset;
     rows.forEach((r, i) => ctx.fillText(r, 0, top + i * LH));
@@ -161,8 +163,8 @@ export function mountHero(hero: HTMLElement, canvas: HTMLCanvasElement, { reduce
     ctx.clearRect(0, 0, W, H);
     drawLedger(g);
     ctx.save();
-    ctx.shadowColor = rgba(C.ink, 1); ctx.shadowBlur = 48;
-    ctx.fillStyle = rgba(C.ink, 0.86);
+    ctx.shadowColor = rgba(C.bg, 1); ctx.shadowBlur = 48;
+    ctx.fillStyle = rgba(C.bg, 0.86);
     ctx.fillRect(g.x0 - 12, g.y0 - 44, g.x1 - g.x0 + 24, g.y1 - g.y0 + 100);
     ctx.restore();
     const { x0, head, pps, y } = g;
@@ -176,7 +178,7 @@ export function mountHero(hero: HTMLElement, canvas: HTMLCanvasElement, { reduce
     ctx.beginPath(); ctx.rect(left, 0, g.x1 - left + 2, H); ctx.clip();
 
     // The range band, sampled along history so a fired manager's gap scrolls away with time.
-    ctx.fillStyle = rgba(C.mint, 0.1);
+    ctx.fillStyle = rgba(C.mark, 0.1);
     for (let x = x0; x < head; x += 2) {
       const on = bandOn(sAt(x));
       if (on <= 0.01) continue;
@@ -185,7 +187,7 @@ export function mountHero(hero: HTMLElement, canvas: HTMLCanvasElement, { reduce
     }
     ctx.globalAlpha = 1;
     // Band edges.
-    ctx.strokeStyle = rgba(C.mint, 0.55); ctx.lineWidth = 1;
+    ctx.strokeStyle = rgba(C.mark, 0.55); ctx.lineWidth = 1;
     for (const edge of [1, -1]) {
       ctx.beginPath();
       let pen = false;
@@ -202,12 +204,12 @@ export function mountHero(hero: HTMLElement, canvas: HTMLCanvasElement, { reduce
         const sAbs = Math.floor(t / P) * P + at + k * P;
         const x = head - (t - sAbs) * pps;
         if (x < x0 - 4 || x > head) continue;
-        ctx.strokeStyle = rgba(C.cream, 0.14); ctx.setLineDash([2, 5]);
+        ctx.strokeStyle = rgba(C.text, 0.14); ctx.setLineDash([2, 5]);
         ctx.beginPath(); ctx.moveTo(x, g.y0 - 6); ctx.lineTo(x, g.y1 + 8); ctx.stroke(); ctx.setLineDash([]);
         const name = at === 0 ? 'epoch 1' : at === 8 ? 'epoch 2' : 'settled';
-        if (at !== 16) label(name, x + 6, g.y0 - 2, rgba(C.cream, 0.4));
-        if (at === 8) { ctx.fillStyle = rgba(C.mint, 1); ctx.beginPath(); ctx.arc(x, g.y1 + 8, 4, 0, TAU); ctx.fill(); }
-        if (at === 16) { ctx.fillStyle = rgba(C.rose, 1); ctx.beginPath(); ctx.arc(x, g.y1 + 8, 4, 0, TAU); ctx.fill(); }
+        if (at !== 16) label(name, x + 6, g.y0 - 2, rgba(C.text, 0.4));
+        if (at === 8) { ctx.fillStyle = rgba(C.mark, 1); ctx.beginPath(); ctx.arc(x, g.y1 + 8, 4, 0, TAU); ctx.fill(); }
+        if (at === 16) { ctx.fillStyle = rgba(C.danger, 1); ctx.beginPath(); ctx.arc(x, g.y1 + 8, 4, 0, TAU); ctx.fill(); }
       }
     }
 
@@ -216,22 +218,22 @@ export function mountHero(hero: HTMLElement, canvas: HTMLCanvasElement, { reduce
     for (let x = x0; x < head; x += 2) {
       const s = sAt(x);
       if (bandOn(s) < 0.5) continue;
-      ctx.fillStyle = inRange(s) ? rgba(C.mint, 0.35) : rgba(C.rose, 0.9);
+      ctx.fillStyle = inRange(s) ? rgba(C.mark, 0.35) : rgba(C.danger, 0.9);
       ctx.fillRect(x, sy - 1, 2.2, 2);
     }
 
     // TWAP: the hook's own average, the line compliance is judged on.
-    ctx.strokeStyle = rgba(C.mint, 1); ctx.lineWidth = 2.25; ctx.lineJoin = 'round';
+    ctx.strokeStyle = rgba(C.mark, 1); ctx.lineWidth = 2.25; ctx.lineJoin = 'round';
     ctx.beginPath();
     for (let x = x0; x <= head; x += 2) { const v = y(sample(twap, sAt(x))); x === x0 ? ctx.moveTo(x, v) : ctx.lineTo(x, v); }
     ctx.stroke();
     // Spot: what trades see, the faint line with the spikes.
-    ctx.strokeStyle = rgba(C.cream, 0.55); ctx.lineWidth = 1.2;
+    ctx.strokeStyle = rgba(C.text, 0.55); ctx.lineWidth = 1.2;
     ctx.beginPath();
     for (let x = x0; x <= head; x += 1.5) { const v = y(sample(spot, sAt(x))); x === x0 ? ctx.moveTo(x, v) : ctx.lineTo(x, v); }
     ctx.stroke();
     // Out of range: the TWAP drawn in rose where it has left the band.
-    ctx.strokeStyle = rgba(C.rose, 1); ctx.lineWidth = 2.25;
+    ctx.strokeStyle = rgba(C.danger, 1); ctx.lineWidth = 2.25;
     ctx.beginPath();
     let pen = false;
     for (let x = x0; x <= head; x += 2) {
@@ -252,9 +254,9 @@ export function mountHero(hero: HTMLElement, canvas: HTMLCanvasElement, { reduce
       const a = range(age2, 0.2, 0.7) * (1 - range(age2, 7, 9));
       const vy = y(sample(spot, sAbs + 0.05));
       ctx.globalAlpha = a;
-      ctx.strokeStyle = rgba(C.cream, 0.5); ctx.beginPath(); ctx.moveTo(x + 4, vy); ctx.lineTo(x + 16, vy); ctx.stroke();
-      label('one-block push', x + 22, vy - 8, rgba(C.cream, 0.75));
-      label('twap held', x + 22, vy + 8, rgba(C.mint, 0.95));
+      ctx.strokeStyle = rgba(C.text, 0.5); ctx.beginPath(); ctx.moveTo(x + 4, vy); ctx.lineTo(x + 16, vy); ctx.stroke();
+      label('one-block push', x + 22, vy - 8, rgba(C.text, 0.75));
+      label('twap held', x + 22, vy + 8, rgba(C.mark, 0.95));
       ctx.globalAlpha = 1;
     }
 
@@ -267,21 +269,21 @@ export function mountHero(hero: HTMLElement, canvas: HTMLCanvasElement, { reduce
       const v = 4.1 - ((i + 0.5) / bars) * 6.4;
       const managed = Math.abs(v) <= 1 ? on : 0;
       const w = g.prof * (0.16 + 0.74 * managed * (0.82 + 0.18 * Math.cos(v * 1.4)));
-      ctx.fillStyle = managed > 0.02 ? rgba(C.mint, 0.25 + 0.6 * managed) : rgba(C.cream, 0.18);
+      ctx.fillStyle = managed > 0.02 ? rgba(C.mark, 0.25 + 0.6 * managed) : rgba(C.text, 0.18);
       ctx.fillRect(head + 10, by + 1.5, w * reveal, Math.max(1, bh - 3));
     }
     if (!g.narrow) {
-      label('anchor', head + 10, g.y1 + 8, rgba(C.cream, 0.45));
-      label('every price', head + 10, g.y1 + 23, rgba(C.cream, 0.3));
+      label('anchor', head + 10, g.y1 + 8, rgba(C.text, 0.45));
+      label('every price', head + 10, g.y1 + 23, rgba(C.text, 0.3));
     }
 
     // The head: where the price is now.
     const sv = y(sample(spot, s)), tv = y(sample(twap, s));
-    ctx.fillStyle = rgba(C.cream, 1); ctx.beginPath(); ctx.arc(head, sv, 3, 0, TAU); ctx.fill();
+    ctx.fillStyle = rgba(C.text, 1); ctx.beginPath(); ctx.arc(head, sv, 3, 0, TAU); ctx.fill();
     const bad = on > 0.5 && !inRange(s);
-    ctx.fillStyle = bad ? rgba(C.rose, 1) : rgba(C.mint, 1);
+    ctx.fillStyle = bad ? rgba(C.danger, 1) : rgba(C.mark, 1);
     ctx.beginPath(); ctx.arc(head, tv, 5, 0, TAU); ctx.fill();
-    ctx.strokeStyle = bad ? rgba(C.rose, 0.3) : rgba(C.mint, 0.3); ctx.lineWidth = 6;
+    ctx.strokeStyle = bad ? rgba(C.danger, 0.3) : rgba(C.mark, 0.3); ctx.lineWidth = 6;
     ctx.beginPath(); ctx.arc(head, tv, 9 + 3 * Math.sin(t * 3), 0, TAU); ctx.stroke();
 
     // The bond: pinned above the range at the head. Slashed at the breach's settlement, dropped to the treasury.
@@ -295,12 +297,12 @@ export function mountHero(hero: HTMLElement, canvas: HTMLCanvasElement, { reduce
     const paid = s >= 8 && s < 9.6 ? 1 - range(s, 8.6, 9.6) : 0;
     if (ba > 0.01) {
       ctx.globalAlpha = ba;
-      const fill = flash > 0 ? rgba(C.rose, 1) : rgba(C.violet, 1);
+      const fill = flash > 0 ? rgba(C.danger, 1) : rgba(C.second, 1);
       if (paid > 0) {
-        ctx.strokeStyle = rgba(C.mint, paid); ctx.lineWidth = 2;
+        ctx.strokeStyle = rgba(C.mark, paid); ctx.lineWidth = 2;
         ctx.beginPath(); ctx.roundRect(bx - 78 - 6 * paid, byy - 12 - 6 * paid, 156 + 12 * paid, 24 + 12 * paid, 18); ctx.stroke();
       }
-      pill('BOND 25,000 USDC', bx, byy, fill, rgba(C.ink, 1));
+      pill('BOND 25,000 USDC', bx, byy, fill, rgba(C.bg, 1));
       ctx.globalAlpha = 1;
     }
 
@@ -313,20 +315,20 @@ export function mountHero(hero: HTMLElement, canvas: HTMLCanvasElement, { reduce
     };
     const pct = Math.round(uptime(s) * 100);
     const fadeIn = (a: number, b: number) => range(s, a, a + 0.3) * (1 - range(s, b - 0.3, b));
-    say(`epoch 1 · in compliance ${pct}% · allowance 95%`, rgba(C.cream, 0.6), fadeIn(0.6, 8));
-    say('settled clean · 30% of the fees to the manager', rgba(C.mint, 1), fadeIn(8, 10.6));
-    say(`epoch 2 · in compliance ${pct}% · allowance 95%`, pct < 95 ? rgba(C.rose, 1) : rgba(C.cream, 0.6), fadeIn(10.6, 16));
-    say('breached · bond slashed to the treasury · manager fired', rgba(C.rose, 1), fadeIn(16, 19));
-    say('treasury closes · every token comes back', rgba(C.cream, 0.6), fadeIn(19, 22));
-    say('next mandate · a new range, a new bond', rgba(C.violet, 1), fadeIn(22, 24.3) + (s < 0.6 ? 1 - range(s, 0.3, 0.6) : 0));
-    if (s >= 16 && s < 18.6) label('→ treasury', head, g.y1 + 60, rgba(C.rose, range(s, 16.6, 17.2) * (1 - range(s, 18.2, 18.6))), 'center');
+    say(`epoch 1 · in compliance ${pct}% · allowance 95%`, rgba(C.text, 0.6), fadeIn(0.6, 8));
+    say('settled clean · 30% of the fees to the manager', rgba(C.mark, 1), fadeIn(8, 10.6));
+    say(`epoch 2 · in compliance ${pct}% · allowance 95%`, pct < 95 ? rgba(C.danger, 1) : rgba(C.text, 0.6), fadeIn(10.6, 16));
+    say('breached · bond slashed to the treasury · manager fired', rgba(C.danger, 1), fadeIn(16, 19));
+    say('treasury closes · every token comes back', rgba(C.text, 0.6), fadeIn(19, 22));
+    say('next mandate · a new range, a new bond', rgba(C.second, 1), fadeIn(22, 24.3) + (s < 0.6 ? 1 - range(s, 0.3, 0.6) : 0));
+    if (s >= 16 && s < 18.6) label('→ treasury', head, g.y1 + 60, rgba(C.danger, range(s, 16.6, 17.2) * (1 - range(s, 18.2, 18.6))), 'center');
 
     // Legend, top left of the chart.
     if (!g.narrow) {
-      label('spot', g.x0, g.y0 - 30, rgba(C.cream, 0.55));
-      label('twap', g.x0 + 52, g.y0 - 30, rgba(C.mint, 1));
-      label('range', g.x0 + 104, g.y0 - 30, rgba(C.mint, 0.55));
-      label('illustrative', g.x1, g.y0 - 30, rgba(C.cream, 0.3), 'right');
+      label('spot', g.x0, g.y0 - 30, rgba(C.text, 0.55));
+      label('twap', g.x0 + 52, g.y0 - 30, rgba(C.mark, 1));
+      label('range', g.x0 + 104, g.y0 - 30, rgba(C.mark, 0.55));
+      label('illustrative', g.x1, g.y0 - 30, rgba(C.text, 0.3), 'right');
     }
   }
 
@@ -347,5 +349,5 @@ export function mountHero(hero: HTMLElement, canvas: HTMLCanvasElement, { reduce
   const io = new IntersectionObserver(([e]) => (e.isIntersecting ? start() : stop()));
   io.observe(hero);
   void document.fonts?.ready.then(resize);
-  return () => { stop(); ro.disconnect(); io.disconnect(); };
+  return () => { stop(); ro.disconnect(); io.disconnect(); removeEventListener('leash-theme', read); };
 }

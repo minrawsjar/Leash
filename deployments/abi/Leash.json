@@ -844,6 +844,46 @@
   },
   {
     "type": "function",
+    "name": "checkpoint",
+    "inputs": [
+      {
+        "name": "key",
+        "type": "tuple",
+        "internalType": "struct PoolKey",
+        "components": [
+          {
+            "name": "currency0",
+            "type": "address",
+            "internalType": "Currency"
+          },
+          {
+            "name": "currency1",
+            "type": "address",
+            "internalType": "Currency"
+          },
+          {
+            "name": "fee",
+            "type": "uint24",
+            "internalType": "uint24"
+          },
+          {
+            "name": "tickSpacing",
+            "type": "int24",
+            "internalType": "int24"
+          },
+          {
+            "name": "hooks",
+            "type": "address",
+            "internalType": "contract IHooks"
+          }
+        ]
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "claim",
     "inputs": [
       {
@@ -1375,12 +1415,22 @@
             "internalType": "uint16"
           },
           {
+            "name": "lastOk",
+            "type": "bool",
+            "internalType": "bool"
+          },
+          {
             "name": "breached",
             "type": "bool",
             "internalType": "bool"
           },
           {
             "name": "closed",
+            "type": "bool",
+            "internalType": "bool"
+          },
+          {
+            "name": "swept",
             "type": "bool",
             "internalType": "bool"
           },

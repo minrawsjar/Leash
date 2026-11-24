@@ -31,7 +31,8 @@ jq .abi out/Leash.sol/Leash.json >deployments/abi/Leash.json
 cat <<EOF
 
 Leash local chain ready at $RPC (chain 31337). Addresses: deployments/31337.json, ABI: deployments/abi/Leash.json
-Accounts (anvil's default mnemonic): #0 treasury, #1 and #2 managers (#2 leads the auction), #3 swapper.
+Accounts (anvil's default mnemonic): #0 treasury, #1 and #2 managers (#2 leads the auction), #3 swapper,
+#4 keeper (scripts/keeper.sh).
 Auction closes 10 min after deploy; epochs are 1 hour x 3. Skip ahead with:
   cast rpc evm_increaseTime 600 --rpc-url $RPC && cast rpc evm_mine --rpc-url $RPC
 Streaming anvil's log below. Ctrl-C stops the chain.

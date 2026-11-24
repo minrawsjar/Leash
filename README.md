@@ -47,10 +47,10 @@ stateDiagram-v2
     Closed --> [*]
 ```
 
-1. **Post a mandate.** The treasury calls `createMandate` with a pool key, a starting price, the terms and the inventory. The hook creates the pool itself, sets the fee to the mandate's cap and pulls in the tokens.
+1. **Post a mandate.** The treasury calls `createMandate` with a pool key, a starting price, the terms and the inventory. The hook creates the pool itself, sets the fee to the mandate's cap, pulls in the tokens and places the treasury's opening position, so the pool is never empty.
 2. **Bond auction.** Until `auctionEnd`, managers call `bid` with a bond in the stablecoin. Each bid must beat the current one. An outbid bond goes straight into the bidder's claimable balance.
-3. **Active epochs.** *(Compliance checks in progress.)* The winning manager calls `rebalance` to place, move or pull the liquidity, and `setFee` to tune the fee. Swappers trade against the pool. On every swap the hook records the price and updates the compliance counter for the current epoch.
-4. **Settle each epoch.** *(In progress.)* When an epoch ends, anyone can settle it. If the position stayed in compliance long enough, the manager earns a share of the swap fees the position earned. If not, the bond is slashed to the treasury.
+3. **Active epochs.** The winning manager calls `rebalance` to move the liquidity (never below the depth floor) and `setFee` to tune the fee. Swappers trade against the pool. On every swap, and whenever a keeper calls `checkpoint`, the hook records the price and books the time since the last check as in or out of compliance.
+4. **Settle each epoch.** When an epoch ends, anyone can settle it, in order (the keeper does this automatically). If the position stayed in compliance long enough, the manager earns a share of the swap fees the position earned. If not, the bond is slashed to the treasury.
 5. **Close.** After the last epoch, the treasury calls `close`. The hook pulls the liquidity out of the pool and sends all inventory, plus any fees earned, back to the treasury. The manager claims the remaining bond.
 
 ### Where the money can go
@@ -84,6 +84,7 @@ Blocking withdrawals is the easy part. A manager who wants to steal can do it th
 Nothing was withdrawn, yet the treasury lost money. Leash blocks this with a **TWAP** (time-weighted average price) that the hook records itself:
 
 - **Rebalance guard.** Liquidity can only be placed while the pool price is close to the TWAP. A price pushed for one block is far from the average, so the rebalance reverts.
+- **Never-empty pool.** The treasury places the opening position at creation, and a rebalance can never take liquidity below the depth floor. Moving the price always costs real capital, and arbitrage pushes it back.
 - **Grief guard.** Compliance is measured against the TWAP, not the current price. An outsider can't knock the price out of range for one block to get the manager slashed.
 
 v4 has no built-in oracle, so the hook stores its own price observations. It records one in `beforeSwap`, at the first swap of each block, using the price *before* that swap (the same approach as Uniswap v3's oracle). Moving the price and moving it back within one block leaves no trace in the TWAP.
@@ -93,11 +94,11 @@ v4 has no built-in oracle, so the hook stores its own price observations. It rec
 | Rule | Measured as | Why |
 |---|---|---|
 | **In range** | The TWAP is inside the manager's liquidity range. | Liquidity out of range isn't making a market. |
-| **Depth** | The stablecoin it takes to move the price 2% is at least the mandate's minimum. | A market maker has to provide real depth, not a token position. |
+| **Depth** | The position's liquidity is at or above the mandate's floor (`minLiquidity`). | A market maker has to provide real depth, not a token position. |
 | **Pace** | The stablecoin share of the inventory stays at or under a glide path toward the target mix. | Diversify at the treasury's pace. Selling faster than the schedule is dumping. |
 | **Fee** | The fee is at or under the cap. | Enforced when the fee is set, so it can never be breached. |
 
-**Compliance is counted in time, not swaps.** The pool's state only changes on swaps and manager actions. So on every swap the hook credits the seconds since the previous check as either in or out of compliance. This gives exact time-in-compliance for each epoch, with no keeper bot. An epoch is breached only if its out-of-compliance time exceeds the mandate's allowance. A single bad block can't slash anyone.
+**Compliance is counted in time, not swaps.** At every check (each swap, each manager action, and a public `checkpoint()` that the keeper calls every minute) the hook books the seconds since the previous check. An interval counts as compliant only if the mandate was compliant at **both** ends, so a manager can't wait out a bad stretch and log it as good once the price drifts back. With a keeper running, the booking is accurate to about one check interval each time the state changes. An epoch is breached only if its out-of-compliance time exceeds the mandate's allowance, so a single bad block can't slash anyone.
 
 ### Why the pool is treasury-only
 
@@ -112,17 +113,21 @@ Leash pools are created with v4's dynamic-fee flag. The fee starts at the mandat
 
 ## Mandate terms
 
-Implemented today (`Terms` in [src/Leash.sol](src/Leash.sol)):
+`Terms` in [src/Leash.sol](src/Leash.sol):
 
 | Term | Meaning |
 |---|---|
 | `stableIs0` | Which pool currency is the stablecoin. Bonds are paid in it. |
 | `maxFee` | Fee cap in hundredths of a basis point (v4 "pips"). |
-| `auctionEnd` | When bidding closes and epoch 0 starts. |
-| `epochLength`, `epochs` | Epoch duration in seconds, and how many epochs there are. |
+| `auctionEnd` | When bidding closes and epoch 0 starts. Must be at least one TWAP window away, so the oracle has full history before the manager can act. |
+| `epochLength`, `epochs` | Epoch duration in seconds, and how many epochs there are (at most 365). |
 | `minBond` | Smallest acceptable bond. |
-
-Planned, arriving with the compliance work: minimum depth, maximum TWAP deviation for rebalances, the TWAP window, the target mix and its glide path, the out-of-compliance allowance per epoch, and the manager's fee share.
+| `twapWindow` | Seconds the TWAP averages over. |
+| `maxTickDeviation` | A rebalance is refused while spot is more than this many ticks from the TWAP (100 ticks ≈ 1%). |
+| `minLiquidity` | Depth floor: the position can never be smaller. |
+| `uptimeBps` | Share of each epoch that must be in compliance, e.g. 9500 = 95%. |
+| `managerFeeBps` | Manager's share of a clean epoch's LP fees, e.g. 3000 = 30%. |
+| `startStableBps`, `endStableBps` | Pace glide path: the highest stablecoin share of inventory value allowed, from epoch 0 to the end, linear in between. |
 
 ## Status
 
@@ -130,19 +135,19 @@ Hookathon deadline is 3 December 2026.
 
 | Piece | State |
 |---|---|
-| Foundry scaffold (v4-core / v4-periphery) | ✅ |
-| `createMandate`: pool creation, deposit, initial fee | ✅ |
+| Mandates: hook-created treasury-only pool, deposit, opening position | ✅ |
 | Bond auction with pull-payment refunds (`bid`, `claim`) | ✅ |
 | Hook-owned liquidity, manager `rebalance`, per-mandate ledger | ✅ |
 | Capped dynamic fee (`setFee`) | ✅ |
-| Treasury-only pool (outside inits and LPs blocked) | ✅ |
-| `close`: return inventory and bond | ✅ |
+| Hook-recorded TWAP and the rebalance guard | ✅ |
+| Per-swap compliance, time-in-compliance accounting, public `checkpoint` | ✅ |
+| Epoch settlement: pay or slash, manager track record | ✅ |
+| `close`: settles remaining epochs, returns everything | ✅ |
+| Invariant fuzzing: ledger always matches balances; managers gain only their pay | ✅ |
+| Deploy script, local dev chain, keeper | ✅ |
 | Landing page (React + TypeScript) | ✅ |
-| TWAP observations and the rebalance guard | 🔨 next |
-| Per-swap compliance and time-in-compliance accounting | ⏳ |
-| Epoch settlement: pay or slash, manager track record | ⏳ |
-| Fuzz test: no path lets the manager withdraw | ⏳ |
-| Unichain Sepolia deployment and demo script | ⏳ |
+| Independent security review | 🔨 in progress |
+| Unichain Sepolia deployment | ⏳ |
 | App screens: create a mandate, bid, manage, dashboard | ⏳ |
 
 ### Known limits
@@ -151,16 +156,29 @@ Hookathon deadline is 3 December 2026.
 - **A thin pool's TWAP can still be dragged** over many blocks by someone willing to pay for it. The TWAP window and the rebalance deviation limit bound how far.
 - **ERC-20 only.** Native ETH pools are rejected.
 - **One mandate per pool.** One hook serves many pools.
+- **Oracle history is fixed at 1,024 observations** (one per block with a swap). A pool swapped every block on 1-second blocks keeps about 17 minutes, and longer windows quietly shorten to what's held. A growable buffer, as in Uniswap v3, would lift this.
+- **Fast trends.** While spot runs far from the TWAP, rebalances are refused, and out-of-range time counts against the manager. The uptime allowance is the only slack.
+- **Fees are booked when collected.** A late settle counts some of the next epoch's fees toward the earlier one; the keeper settles promptly.
+- **Quiet pools need the keeper.** Without checkpoints, a long gap is judged only by its endpoints, and the first swap after a gap spanning many epochs pays to book them all (about 23k gas per epoch).
+- **Standard ERC-20s only.** Fee-on-transfer and rebasing tokens are not supported.
 
 ## Repository layout
 
 ```
-src/Leash.sol            the hook: mandates, auction, liquidity, fees
-src/utils/BaseHook.sol   vendored v4 BaseHook (periphery at this pin no longer ships it)
-test/Leash.t.sol         Foundry tests
-script/HookMiner.sol     mines a CREATE2 salt so the hook address encodes its permissions
-frontend/                landing page (Vite + React + TypeScript)
-frontend/cutout.swift    rebuilds the hero's animation layers from the source art (macOS)
+src/Leash.sol              the hook: mandates, auction, liquidity, TWAP, compliance, settlement
+src/utils/BaseHook.sol     vendored v4 BaseHook (periphery at this pin no longer ships it)
+test/Leash.t.sol           unit tests
+test/fuzz/                 invariant tests: ledger == balances, managers gain only their pay
+test/Deploy.t.sol          the deployed hook address encodes exactly its permissions
+test/Settle.t.sol          keeper logic
+script/DeployLeash.s.sol   mines the hook address and deploys (Unichain Sepolia or any chain)
+script/Local.s.sol         local stack: v4, mock tokens, Leash and a seeded mandate
+script/Settle.s.sol        keeper round: checkpoint, then settle ended epochs
+scripts/local.sh           one command: fresh anvil with everything deployed
+scripts/keeper.sh          runs the keeper every minute
+deployments/               addresses per chain, and the ABI for the frontend
+frontend/                  landing page (Vite + React + TypeScript)
+frontend/cutout.swift      rebuilds the hero's animation layers from the source art (macOS)
 ```
 
 ## Running it
@@ -171,6 +189,20 @@ Contracts (Foundry):
 git clone --recurse-submodules https://github.com/minrawsjar/Leash
 cd Leash
 forge test
+```
+
+Local chain with everything deployed and a live mandate (accounts: #0 treasury, #1 and #2 managers, #3 swapper, #4 keeper):
+
+```sh
+./scripts/local.sh                      # anvil at http://127.0.0.1:8545; addresses in deployments/31337.json
+./scripts/keeper.sh                     # in a second terminal: checkpoint and settle every 60s
+cast rpc evm_increaseTime 600 && cast rpc evm_mine   # skip time
+```
+
+Unichain Sepolia (put `PRIVATE_KEY` in `.env`, see `.env.example`):
+
+```sh
+forge script script/DeployLeash.s.sol --rpc-url unichain_sepolia --broadcast
 ```
 
 Frontend:

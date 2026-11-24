@@ -175,7 +175,7 @@ Hookathon deadline is 3 December 2026.
 
 | Network | Leash hook | PoolManager |
 |---|---|---|
-| Unichain Sepolia (1301) | [`0x2D01f25225D8CF9AD416d466472b2d8Bf7Dd2880`](https://unichain-sepolia.blockscout.com/address/0x2D01f25225D8CF9AD416d466472b2d8Bf7Dd2880) (source verified) | `0x00B036B58a818B1BC34d502D3fE730Db729e62AC` |
+| Unichain Sepolia (1301) | [`0x9F1e080eFA57938d394e41d58702912371346880`](https://unichain-sepolia.blockscout.com/address/0x9F1e080eFA57938d394e41d58702912371346880) (source verified) | `0x00B036B58a818B1BC34d502D3fE730Db729e62AC` |
 
 The address ends in `0x2880`: v4 reads a hook's permissions from its address bits, here before-initialize, before-add-liquidity and before-swap.
 

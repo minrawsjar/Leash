@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { parseUnits, zeroAddress, type Address, type Hex } from 'viem';
 import {
-  ago, amountsAt, blockTime, chainNow, client, dur, endOf, epochRecords, feePct, fmt, fmtLiq, fmtNum, fmtPrice, glideAt, GROW_BPS, leashLogs, MAX_GROW_GAP,
+  ago, amountsAt, describe, blockTime, chainNow, client, dur, endOf, epochRecords, feePct, fmt, fmtLiq, fmtNum, fmtPrice, glideAt, GROW_BPS, leashLogs, MAX_GROW_GAP,
   mandatesFrom, maxTick, minTick, owed, pct, priceAt, short, slot0, snapshot, stableOf, trackRecord, leashAbi,
   type EpochRecord, type LeashLog, type Net, type Snapshot,
 } from './chain.ts';
@@ -224,29 +224,13 @@ function Timeline({ s, records, now }: { s: Snapshot; records: EpochRecord[]; no
 }
 
 function Feed({ s, logs }: { s: Snapshot; logs: LeashLog[] }) {
-  const t = s.m.terms;
-  const [token, stable] = t.stableIs0 ? [s.tok[1], s.tok[0]] : [s.tok[0], s.tok[1]];
-  const say = (l: LeashLog): [string, string] => {
-    const a = l.args as Record<string, never>;
-    switch (l.eventName) {
-      case 'MandateCreated': return ['mint', `Posted by ${short(a.treasury)}: ${fmt(t.stableIs0 ? a.amount1 : a.amount0, token.decimals)} ${token.symbol} + ${fmt(t.stableIs0 ? a.amount0 : a.amount1, stable.decimals)} ${stable.symbol}`];
-      case 'Bid': return ['violet', `${short(a.bidder)} bid ${fmt(a.amount, stable.decimals)} ${stable.symbol}`];
-      case 'Rebalanced': { const [x, y] = [priceAt(a.tickLower, s.key, t, s.tok), priceAt(a.tickUpper, s.key, t, s.tok)].sort((p, q) => p - q); return ['mint', `Range moved to ${fmtPrice(x)}–${fmtPrice(y)} (ticks ${a.tickLower}…${a.tickUpper}), liquidity ${fmtLiq(a.liquidity)}`]; }
-      case 'FeeSet': return ['', `Fee set to ${feePct(Number(a.fee))}`];
-      case 'EpochSettled': return a.clean
-        ? ['mint', `Epoch ${Number(a.epoch) + 1} clean: manager paid ${fmt(t.stableIs0 ? a.pay1 : a.pay0, token.decimals, 4)} ${token.symbol} + ${fmt(t.stableIs0 ? a.pay0 : a.pay1, stable.decimals, 4)} ${stable.symbol}`]
-        : ['rose', `Epoch ${Number(a.epoch) + 1} breached: ${fmt(a.slashed, stable.decimals)} ${stable.symbol} bond slashed to the treasury`];
-      case 'Closed': return ['', 'Closed: inventory and fees returned to the treasury'];
-      default: return ['', l.eventName];
-    }
-  };
   const { net } = useApp();
   const shown = [...logs].reverse().slice(0, 30);
   const times = usePoll(() => Promise.all(shown.map((l) => blockTime(net, l.blockNumber))), 15_000, [shown.length, String(shown[0]?.blockNumber)]);
   if (!logs.length) return <p className="quiet">No events yet.</p>;
   return (
     <ol className="feed">
-      {shown.map((l, i) => { const [tone, text] = say(l); return (
+      {shown.map((l, i) => { const [tone, text] = describe(l, s); return (
         <li key={`${l.transactionHash}-${l.logIndex}`}><i className={`fdot ${tone}`} /><span>{text}</span><small>{times.data ? `${ago(s.now - times.data[i])} · ` : ''}block {String(l.blockNumber)} · <TxLink hash={l.transactionHash} /></small></li>
       ); })}
     </ol>

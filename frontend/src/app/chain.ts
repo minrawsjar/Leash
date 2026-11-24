@@ -215,6 +215,24 @@ export const trackRecord = (n: Net, who: Address) => read<[number, number]>(n, '
 export const mandatesFrom = (logs: LeashLog[]) =>
   logs.filter((l) => l.eventName === 'MandateCreated').map((l) => ({ id: l.args.id as Hex, key: l.args.key as Key, treasury: l.args.treasury as Address, block: l.blockNumber }));
 
+/** One event in plain words, with a tone for its dot: [tone, text]. */
+export function describe(l: LeashLog, s: Snapshot): [string, string] {
+  const t = s.m.terms;
+  const [token, stable] = t.stableIs0 ? [s.tok[1], s.tok[0]] : [s.tok[0], s.tok[1]];
+  const a = l.args as Record<string, never>;
+  switch (l.eventName) {
+    case 'MandateCreated': return ['mint', `Posted by ${short(a.treasury)}: ${fmt(t.stableIs0 ? a.amount1 : a.amount0, token.decimals)} ${token.symbol} + ${fmt(t.stableIs0 ? a.amount0 : a.amount1, stable.decimals)} ${stable.symbol}`];
+    case 'Bid': return ['violet', `${short(a.bidder)} bid ${fmt(a.amount, stable.decimals)} ${stable.symbol}`];
+    case 'Rebalanced': { const [x, y] = [priceAt(a.tickLower, s.key, t, s.tok), priceAt(a.tickUpper, s.key, t, s.tok)].sort((p, q) => p - q); return ['mint', `Range moved to ${fmtPrice(x)}–${fmtPrice(y)} (ticks ${a.tickLower}…${a.tickUpper}), liquidity ${fmtLiq(a.liquidity)}`]; }
+    case 'FeeSet': return ['', `Fee set to ${feePct(Number(a.fee))}`];
+    case 'EpochSettled': return a.clean
+      ? ['mint', `Epoch ${Number(a.epoch) + 1} clean: manager paid ${fmt(t.stableIs0 ? a.pay1 : a.pay0, token.decimals, 4)} ${token.symbol} + ${fmt(t.stableIs0 ? a.pay0 : a.pay1, stable.decimals, 4)} ${stable.symbol}`]
+      : ['rose', `Epoch ${Number(a.epoch) + 1} breached: ${fmt(a.slashed, stable.decimals)} ${stable.symbol} bond slashed to the treasury`];
+    case 'Closed': return ['', 'Closed: inventory and fees returned to the treasury'];
+    default: return ['', l.eventName];
+  }
+}
+
 // ---------------------------------------------------------------- formatting
 export function fmt(raw: bigint | number, decimals: number, digits = 2): string {
   const v = typeof raw === 'bigint' ? Number(raw) / 10 ** decimals : raw / 10 ** decimals;

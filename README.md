@@ -153,7 +153,7 @@ Hookathon deadline is 3 December 2026.
 | Landing page (React + TypeScript) | ✅ |
 | Independent security audit: 2 critical, 1 high, 2 medium, 1 low found and fixed; each attack kept as a regression test | ✅ |
 | Re-audit of the fixes | 🔨 in progress |
-| Unichain Sepolia deployment | ⏳ |
+| Unichain Sepolia deployment (source verified) | ✅ |
 | App screens: create a mandate, bid, manage, dashboard | ⏳ |
 
 ### Known limits
@@ -168,6 +168,14 @@ Hookathon deadline is 3 December 2026.
 - **Fees are booked when collected.** A late settle counts some of the next epoch's fees toward the earlier one; the keeper settles promptly.
 - **Quiet pools need the keeper.** Without checkpoints, a long gap is judged only by its endpoints, and the first swap after a gap spanning many epochs pays to book them all (about 23k gas per epoch).
 - **Standard ERC-20s only.** Fee-on-transfer and rebasing tokens are not supported.
+
+## Deployments
+
+| Network | Leash hook | PoolManager |
+|---|---|---|
+| Unichain Sepolia (1301) | [`0x2D01f25225D8CF9AD416d466472b2d8Bf7Dd2880`](https://unichain-sepolia.blockscout.com/address/0x2D01f25225D8CF9AD416d466472b2d8Bf7Dd2880) (source verified) | `0x00B036B58a818B1BC34d502D3fE730Db729e62AC` |
+
+The address ends in `0x2880`: v4 reads a hook's permissions from its address bits, here before-initialize, before-add-liquidity and before-swap.
 
 ## Repository layout
 

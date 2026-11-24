@@ -1,4 +1,4 @@
-# Leash landing site: working brief (round 1)
+# Leash landing site: working brief (after round 2)
 
 ## Goal
 One page at `/` that makes a treasury lead or a market maker understand Leash in one scroll, at Opaque's
@@ -35,5 +35,30 @@ src/Leash.sol. Abstract metaphor only: a price line, a TWAP band, liquidity bars
 - Fee: manager sets it between floor and cap. Pay: managerFeeBps of the epoch's LP fees (e.g. 30%).
 - Hero numbers are illustrative: say so.
 
-## Open problems
-(filled after each round)
+## Rules learned
+- Screenshots: plain `chrome --screenshot` of a scrolled page comes back blank, and a 9000px window makes
+  100svh sections 9000px tall. Drive Chrome over CDP instead (/tmp/leash-shots/cdp.mjs: navigate, wait,
+  Page.captureScreenshot). Section shots at 1440x1800, pinned/hero shots at 1440x900, phone at 390x844 with
+  mobile emulation. `?shot=<id>` / `?shot=story-<x>` scroll there; `?t=` freezes the hero; `?still` = reduced.
+- Hero must fit 900px tall: title clamp(64px, min(9.4vw, 15.5svh), 168px). On phones the chart is a fixed
+  300px block at the top and the copy starts at 372px; the ledger fades out at the chart's bottom edge.
+- The ledger behind the chart fights the lines: a soft ink panel (shadowBlur) sits between them.
+- Canvas cards need fixed internal rows (px), not fractions of H, or they break at phone height.
+- The SVG AttackChart scales its 11px labels with its width: cap it by putting it in a 2-column card.
+- Story timing: each scene plays over 6%..84% of its stretch, so it holds finished before the next.
+- Hyphenated words in h3 break badly ("re-/audited"): reword.
+
+## Round log
+- R1: everything built; story/tour/proof never seen because headless screenshots were blank.
+- R2: CDP screenshots; hero sized to fit; one-block-push labels beside the spike; loop reordered so the
+  next mandate's range only appears once the TWAP is home (no false rose segment at the left edge);
+  settle cards rebuilt on fixed rows; auction bids stack on phones; attack steps beside the chart;
+  phone screen got an activity list; final banner band moved below the copy and tiled seamlessly.
+
+## Open problems (next round)
+1. Check the nav dropdown and the phone menu sheet open (no shot yet).
+2. Check reduced motion (?still): stacked scenes with still canvases.
+3. Story canvas on violet/mint: managed bars and pills should read at a glance; deposit labels overlap
+   bars on phones.
+4. Tile art in the tour (fee slider, clock) is small for its tile; consider bigger art.
+5. Hero: does the loop read without the labels? Try a live (unfrozen) shot mid-slash.

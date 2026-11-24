@@ -121,7 +121,7 @@ export function mountHero(hero: HTMLElement, canvas: HTMLCanvasElement, { reduce
   function geo() {
     const narrow = W < 760;
     const x0 = narrow ? 16 : W * 0.5, x1 = narrow ? W - 16 : W - Math.max(24, W * 0.045);
-    const y0 = narrow ? 24 : H * 0.17, y1 = narrow ? H * 0.46 : H * 0.8;
+    const y0 = narrow ? 40 : H * 0.17, y1 = narrow ? 300 : H * 0.8;
     const prof = (x1 - x0) * (narrow ? 0.2 : 0.17);
     const head = x1 - prof;
     const pps = (head - x0) / (narrow ? 7 : 10); // px per second of history
@@ -151,7 +151,7 @@ export function mountHero(hero: HTMLElement, canvas: HTMLCanvasElement, { reduce
     ctx.font = `12px ${MONO}`;
     ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
     const fade = g.narrow ? ctx.createLinearGradient(0, 0, 0, H) : ctx.createLinearGradient(0, 0, W, 0);
-    const stops: [number, number][] = g.narrow ? [[0, 0.07], [0.45, 0.07], [0.6, 0]] : [[0, 0], [0.4, 0], [0.56, 0.085], [1, 0.085]];
+    const stops: [number, number][] = g.narrow ? [[0, 0.07], [Math.min(0.9, 300 / H), 0.07], [Math.min(0.95, 350 / H), 0]] : [[0, 0], [0.4, 0], [0.56, 0.085], [1, 0.085]];
     for (const [at, a] of stops) fade.addColorStop(at, rgba(C.cream, a));
     ctx.fillStyle = fade;
     const top = LH / 2 - offset;

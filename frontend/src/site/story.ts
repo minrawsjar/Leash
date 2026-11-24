@@ -139,15 +139,16 @@ export function createStory(canvas: HTMLCanvasElement) {
       const ax = g.x0 + 2 * g.step;
       ctx.globalAlpha = la; ctx.strokeStyle = css(th.muted); ctx.lineWidth = 1;
       ctx.beginPath(); ctx.moveTo(ax, g.base - g.low - 6); ctx.lineTo(ax, g.base - g.low - 34); ctx.stroke(); ctx.globalAlpha = 1;
-      text('anchor · full range', ax - 4, g.base - g.low - 48, th.fg, { alpha: la });
-      text('the manager can never move it', ax - 4, g.base - g.low - 66, th.muted, { alpha: la, upper: false, font: SANS, size: 13, weight: 400 });
+      text('anchor · full range', ax - 4, g.base - g.low - 66, th.fg, { alpha: la });
+      if (!narrow()) text('the manager can never move it', ax - 4, g.base - g.low - 46, th.muted, { alpha: la, upper: false, font: SANS, size: 13, weight: 400 });
       const mx = g.x0 + ((OPEN[0] + OPEN[1]) / 2) * g.step;
       text('opening position', mx, g.base - g.low - g.tall - 22, th.fg, { align: 'center', alpha: lb });
+      text('only the hook can add liquidity', g.x1 + 2, g.base + 18, th.muted, { align: 'right', alpha: range(p, 0.9, 1) });
     },
 
     auction() {
       const g = pool();
-      bars(g, 1, 1, OPEN[0], OPEN[1], 0.3);
+      bars(g, 1, 1, OPEN[0], OPEN[1], 0.14);
       const bids: [string, string][] = [['0x4f…9c1e', '18,000'], ['0xb8…7c4a', '22,500'], ['0x71…a3c2', '25,000']];
       const at = [0.08, 0.3, 0.52];
       const cy = H * 0.36, cx = W / 2;
@@ -165,8 +166,9 @@ export function createStory(canvas: HTMLCanvasElement) {
         const inn = ease(range(p, at[i], at[i] + 0.1));
         if (inn <= 0) return;
         const beaten = i < 2 ? ease(range(p, at[i + 1], at[i + 1] + 0.12)) : 0;
-        const laneY = H * 0.52 + (1 - i) * 0; // both beaten bids share one row
-        const laneX = W / 2 + (i === 0 ? -1 : 1) * Math.min(W * 0.2, 130);
+        // Beaten bids share a row; on a phone they stack.
+        const laneY = H * 0.52 + (narrow() ? i * 38 : 0);
+        const laneX = narrow() ? W / 2 : W / 2 + (i === 0 ? -1 : 1) * Math.min(W * 0.2, 130);
         const x = lerp(cx, laneX, beaten), y = lerp(cy - 40 * (1 - inn), laneY, beaten);
         const win = i === 2 ? ease(range(p, 0.8, 0.92)) : 0;
         if (win > 0) {
@@ -175,7 +177,7 @@ export function createStory(canvas: HTMLCanvasElement) {
         }
         pill(`${who}  ${amt} USDC`, x, y, beaten > 0.5 ? th.card : th.bond, beaten > 0.5 ? th.fg : th.bg, { alpha: inn * (1 - 0.35 * beaten), size: beaten > 0.5 ? 11 : 13, h: beaten > 0.5 ? 30 : 36 });
       });
-      text('outbid · claimable at once', W / 2, H * 0.52 + 32, th.muted, { align: 'center', alpha: range(p, 0.36, 0.46) });
+      text('outbid · claimable at once', W / 2, H * 0.52 + (narrow() ? 84 : 36), th.muted, { align: 'center', alpha: range(p, 0.36, 0.46) });
       text('manager · bond on the line', cx, cy - 46, th.fg, { align: 'center', alpha: range(p, 0.84, 0.94) });
     },
 
@@ -185,7 +187,7 @@ export function createStory(canvas: HTMLCanvasElement) {
       const from = lerp(OPEN[0], MOVED[0], move), to = lerp(OPEN[1], MOVED[1], move);
       bars(g, 1, 1, from, to);
       const mx = g.x0 + ((from + to) / 2) * g.step, my = g.base - g.low - g.tall - 24;
-      pill('rebalance()', mx, my, th.bond, th.bg, { alpha: range(p, 0.04, 0.12) * (1 - 0.6 * range(p, 0.44, 0.5)), size: 12, h: 30 });
+      pill('rebalance()', mx, my, th.bond, th.bg, { alpha: range(p, 0.04, 0.12), size: 12, h: 30 });
       if (move > 0 && move < 1) {
         ctx.strokeStyle = css(th.bond); ctx.lineWidth = 1.5; ctx.setLineDash([3, 5]);
         const ox = g.x0 + ((OPEN[0] + OPEN[1]) / 2) * g.step;
@@ -224,8 +226,8 @@ export function createStory(canvas: HTMLCanvasElement) {
 
     checks() {
       const nar = narrow();
-      const x0 = W * (nar ? 0.06 : 0.1), x1 = W * (nar ? 0.94 : 0.9), y0 = H * 0.1, y1 = H * (nar ? 0.46 : 0.5);
-      const mid = (y0 + y1) / 2, half = (y1 - y0) * 0.24;
+      const x0 = W * (nar ? 0.06 : 0.1), x1 = W * (nar ? 0.94 : 0.9), y0 = H * 0.1, y1 = H * (nar ? 0.4 : 0.44);
+      const mid = (y0 + y1) / 2, half = (y1 - y0) * 0.3;
       // The range band, the TWAP and spot, drawn as far as the scroll has got.
       ctx.fillStyle = css(th.card); ctx.fillRect(x0, mid - half, x1 - x0, half * 2);
       ctx.strokeStyle = css(th.line); ctx.lineWidth = 1;
@@ -256,7 +258,7 @@ export function createStory(canvas: HTMLCanvasElement) {
       const since = last < 0 ? 1 : (upto - (x0 + every * (last + 0.5))) / every;
       const pulse = clamp(1 - since, 0, 1);
       const rows: [string, string][] = [['in range', 'the TWAP is inside the range'], ['depth', 'liquidity at or above the floor'], ['pace', 'stablecoin share under the glide path']];
-      const ry = H * (nar ? 0.58 : 0.62), gap = nar ? 30 : 34;
+      const ry = H * (nar ? 0.56 : 0.6), gap = nar ? 30 : 34;
       rows.forEach(([k, v], i) => {
         const y = ry + i * gap;
         const on = range(p, 0.04 + i * 0.03, 0.1 + i * 0.03);
@@ -280,36 +282,40 @@ export function createStory(canvas: HTMLCanvasElement) {
       const nar = narrow();
       const cards: { n: number; up: number; ok: boolean; out: string; at: number }[] = [
         { n: 3, up: 99.2, ok: true, out: '30% of the fees to the manager', at: 0.04 },
-        { n: 4, up: 91.7, ok: false, out: 'bond to the treasury · manager fired', at: 0.5 },
+        { n: 4, up: 91.7, ok: false, out: 'bond to the treasury, manager fired', at: 0.5 },
       ];
-      const cw = nar ? W * 0.88 : Math.min(W * 0.4, 380), ch = nar ? H * 0.36 : H * 0.5;
+      // Fixed rows inside each card, so it reads the same at any size.
+      const cw = nar ? W - 32 : Math.min(W * 0.4, 380), ch = nar ? 206 : 300, pad = nar ? 20 : 28;
+      const big = nar ? 34 : 52;
       cards.forEach((c, i) => {
-        const cx = nar ? (W - cw) / 2 : W / 2 + (i === 0 ? -cw - 12 : 12);
-        const cy = nar ? H * 0.08 + i * (ch + 20) : (H - ch) / 2;
+        const cx = nar ? 16 : W / 2 + (i === 0 ? -cw - 12 : 12);
+        const cy0 = nar ? Math.max(12, H / 2 - ch - 10) + i * (ch + 20) : (H - ch) / 2;
         const inn = ease(range(p, c.at - 0.04, c.at + 0.08));
+        const cy = cy0 + (1 - inn) * 24;
         ctx.globalAlpha = inn;
-        ctx.fillStyle = css(th.card); ctx.beginPath(); ctx.roundRect(cx, cy + (1 - inn) * 24, cw, ch, 22); ctx.fill();
+        ctx.fillStyle = css(th.card); ctx.beginPath(); ctx.roundRect(cx, cy, cw, ch, 22); ctx.fill();
         ctx.globalAlpha = 1;
-        const yb = cy + (1 - inn) * 24, pad = 24;
-        text(`epoch ${c.n}`, cx + pad, yb + pad + 6, th.muted, { alpha: inn });
-        // Time in compliance, the bar running from 80% so the 95% allowance is readable.
+        text(`epoch ${c.n}`, cx + pad, cy + pad + 4, th.muted, { alpha: inn });
         const fill = ease(range(p, c.at + 0.04, c.at + 0.3));
         const v = lerp(80, c.up, fill);
-        text(`${v.toFixed(1)}%`, cx + pad, yb + pad + 52, th.fg, { alpha: inn, font: SANS, weight: 800, size: nar ? 34 : 44, upper: false });
-        text('of the epoch in compliance', cx + pad, yb + pad + 90, th.muted, { alpha: inn, font: SANS, weight: 400, size: 13, upper: false });
-        const bx0 = cx + pad, bx1 = cx + cw - pad, by = yb + ch * 0.62;
+        text(`${v.toFixed(1)}%`, cx + pad, cy + pad + 18 + big / 2, th.fg, { alpha: inn, font: SANS, weight: 800, size: big, upper: false });
+        text('of the epoch in compliance', cx + pad, cy + pad + 30 + big, th.muted, { alpha: inn, font: SANS, weight: 400, size: 13, upper: false });
+        // The bar runs from 80%, so the 95% allowance is readable.
+        const bx0 = cx + pad, bx1 = cx + cw - pad, by = cy + pad + (nar ? 74 : 110) + big * 0.5;
         ctx.globalAlpha = inn;
         ctx.fillStyle = css(th.line); ctx.fillRect(bx0, by - 4, bx1 - bx0, 8);
         ctx.fillStyle = css(c.ok ? th.good : th.bad); ctx.fillRect(bx0, by - 4, (bx1 - bx0) * ((v - 80) / 20), 8);
         const lx = lerp(bx0, bx1, 0.75);
         ctx.strokeStyle = css(th.fg); ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(lx, by - 12); ctx.lineTo(lx, by + 12); ctx.stroke();
         ctx.globalAlpha = 1;
-        text('95% allowance', lx, by + 26, th.muted, { align: 'center', alpha: inn });
-        // The verdict.
+        text('95% allowance', lx, by + 24, th.muted, { align: 'center', alpha: inn, size: 10 });
         const stamp = ease(range(p, c.at + 0.32, c.at + 0.4));
-        const sy = yb + ch - pad - 10;
-        pill(c.ok ? 'PAID' : 'SLASHED', bx0 + (c.ok ? 34 : 50), sy, c.ok ? th.good : th.bad, th.bg, { alpha: stamp, size: 12, h: 30 });
-        if (!nar || cw > 300) text(c.out, bx0 + (c.ok ? 80 : 112), sy, th.fg, { alpha: stamp, upper: false, font: SANS, size: 13, weight: 500 });
+        const sy = cy + ch - pad - 12;
+        const label = c.ok ? 'PAID' : 'SLASHED';
+        ctx.font = `600 12px ${MONO}`;
+        const sw = ctx.measureText(label).width + 27;
+        pill(label, bx0 + sw / 2, sy, c.ok ? th.good : th.bad, th.bg, { alpha: stamp, size: 12, h: 30 });
+        text(c.out, bx0 + sw + 12, sy, th.fg, { alpha: stamp, upper: false, font: SANS, size: nar ? 12.5 : 14, weight: 500 });
       });
     },
   };

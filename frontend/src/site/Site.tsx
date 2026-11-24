@@ -184,6 +184,12 @@ export function Site() {
                       <div><dt>Pace</dt><dd>24% USDC <small>≤ 27%</small></dd></div>
                       <div><dt>Track record</dt><dd>12 clean · 0 breached</dd></div>
                     </dl>
+                    <p className="screen__head">Activity</p>
+                    <ul className="screen__list">
+                      <li><i className="is-good"></i><span><b>Epoch 2 settled clean</b><small>30% of fees to you</small></span><em>+1,322</em></li>
+                      <li><i></i><span><b>Rebalanced</b><small>TWAP ± 600 ticks</small></span><em>2h</em></li>
+                      <li><i></i><span><b>Fee set to 0.18%</b><small>floor 0.05 · cap 0.30</small></span><em>1d</em></li>
+                    </ul>
                   </div>
                   <div className="screen__buttons"><span>Set fee</span><span className="is-go">Rebalance</span></div>
                 </div>
@@ -232,10 +238,18 @@ export function Site() {
             <h2 className="display section-title" id="defences-title">Withdrawal was never the risk.</h2>
             <p>A manager who wants to steal does it through the price: empty the pool, push the price with a tiny swap, put the treasury’s liquidity back around the fake price, then buy it cheap from another wallet. Nothing is withdrawn. Leash prices that out.</p>
           </div>
-          <figure className="attack" data-reveal>
-            <AttackChart />
-            <figcaption><span>Fig. 1</span> One block of manipulation against a 30-block TWAP. Illustrative.</figcaption>
-          </figure>
+          <div className="attack" data-reveal>
+            <ol className="attack__steps">
+              <li>Pull the treasury’s liquidity out. The pool is nearly empty.</li>
+              <li>Push the price down with a tiny swap. Cheap, with no liquidity there.</li>
+              <li>Put the liquidity back around the fake low price.</li>
+              <li>Buy the treasury’s tokens cheaply from another wallet.</li>
+            </ol>
+            <figure>
+              <AttackChart />
+              <figcaption><span>Fig. 1</span> Step 3, refused: one block of manipulation against a 30-block TWAP. Illustrative.</figcaption>
+            </figure>
+          </div>
           <div className="cards">
             {DEFENCES.map(([icon, title, body], i) => (
               <article className="card" key={title} data-reveal style={cv({ '--d': i % 3 })}>
@@ -272,7 +286,7 @@ export function Site() {
               <a className="round" href={SCAN} target="_blank" rel="noopener noreferrer" aria-label="Open the hook on Blockscout"><Arrow /></a>
             </article>
             <article className="proof__card proof__card--mint" data-reveal style={cv({ '--d': 1 })}>
-              <h3>Audited, then re-audited.</h3>
+              <h3>Audited, then audited again.</h3>
               <ul className="proof__audit">
                 <li><b>Audit</b><span>2 critical, 1 high, 2 medium, 1 low found and fixed. Each attack kept as a regression test.</span></li>
                 <li><b>Re-audit</b><span>1 high, 2 medium, 2 low found. Fixed, or bounded and documented.</span></li>
@@ -309,7 +323,7 @@ export function Site() {
           </div>
         </section>
 
-        <section className="final" aria-labelledby="final-title">
+        <section className="final" id="final" aria-labelledby="final-title">
           <div className="final__panel">
             <div className="final__copy" data-reveal>
               <h2 className="display final__title" id="final-title">Hire them.<br /> Keep the leash.</h2>

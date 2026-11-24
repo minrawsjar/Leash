@@ -87,9 +87,10 @@ struct Obs {
 // a 30-min window, and the TWAP silently shortens to what is held. Upgrade: v3-style growable cardinality.
 uint256 constant OBS = 1024;
 uint256 constant BPS = 10_000;
-// ponytail: one checkpoint after a long quiet spell writes every epoch it spans (~22k gas each); the cap keeps that
-// under a block. Upgrade: checkpoint in bounded chunks.
-uint256 constant MAX_EPOCHS = 365;
+// ponytail: one checkpoint after a long quiet spell writes every epoch it spans (~23k gas each), and close() settles
+// every unsettled epoch (~80k each). 104 (two years of weekly epochs) keeps both under the 2^24 per-transaction gas
+// cap (EIP-7825). Upgrade: checkpoint and settle in bounded chunks.
+uint256 constant MAX_EPOCHS = 104;
 
 struct Oracle {
     uint16 index; // newest

@@ -582,25 +582,28 @@ contract LeashTest is Test, Deployers {
         _swapBothWays();
     }
 
-    /// Worst case for the checkpoint loop: 365 one-hour epochs and no activity at all until after the end.
-    /// The first swap afterwards books every epoch.
+    /// Worst case for the checkpoint loop: the maximum 104 one-hour epochs and no activity at all until after the
+    /// end. The first swap afterwards books every epoch, and must fit the 2^24 per-transaction gas cap.
     function test_swap_afterQuietGapAcrossAllEpochs() public {
         key = PoolKey(currency0, currency1, LPFeeLibrary.DYNAMIC_FEE_FLAG, 10, IHooks(address(leash)));
         Terms memory t = _terms();
-        (t.epochs, t.epochLength) = (365, 1 hours);
+        (t.epochs, t.epochLength) = (105, 1 hours);
+        vm.expectRevert(Leash.BadTerms.selector);
+        leash.createMandate(key, SQRT_PRICE_1_1, t, 100e18, 100e18, _initial());
+        t.epochs = 104;
         leash.createMandate(key, SQRT_PRICE_1_1, t, 100e18, 100e18, _initial());
         vm.prank(alice);
         leash.bid(key, 10e18);
-        vm.warp(auctionEnd + 366 hours);
+        vm.warp(auctionEnd + 105 hours);
 
         int24 tick = _tick();
         uint256 g = gasleft();
         _swapTo(true, 1e15, tick - 60);
         uint256 used = g - gasleft();
-        emit log_named_uint("swap gas after a quiet gap over 365 epochs", used);
-        assertLt(used, 10_000_000, "fits in a block");
+        emit log_named_uint("swap gas after a quiet gap over 104 epochs", used);
+        assertLt(used, 1 << 24, "fits the per-transaction gas cap");
         assertEq(leash.epochRecord(key.toId(), 0).inSecs, 1 hours);
-        assertEq(leash.epochRecord(key.toId(), 364).inSecs, 1 hours);
+        assertEq(leash.epochRecord(key.toId(), 103).inSecs, 1 hours);
         _swapBothWays();
     }
 

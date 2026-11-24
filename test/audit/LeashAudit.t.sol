@@ -324,24 +324,25 @@ contract LeashAuditTest is Test, Deployers {
 
     // ================================================================ L-1
 
-    /// L-1. close() settles every unsettled epoch in one transaction, each with its own unlock and position poke.
-    /// With the maximum 365 epochs and nobody settling along the way it costs ~28.7M gas: just under a 30M block but
-    /// well over the EIP-7825 per-transaction cap (2^24 = 16,777,216) on chains that enforce it. Workaround exists
-    /// (settle epochs one by one first), so funds aren't lost, but close() alone can't run.
+    /// L-1, fixed: at most 104 epochs. close() with all 104 unsettled (one checkpoint booking every epoch, then
+    /// 104 settles, each poking the position) stays under the EIP-7825 per-transaction cap of 2^24 gas.
     function test_L1_closeAfter365UnsettledEpochsExceedsTxGasCap() public {
-        vm.skip(true); // until its fix lands
         key = PoolKey(currency0, currency1, LPFeeLibrary.DYNAMIC_FEE_FLAG, 10, IHooks(address(leash)));
         Terms memory t = _terms();
         (t.epochs, t.epochLength) = (365, 1 hours);
+        vm.expectRevert(Leash.BadTerms.selector);
+        leash.createMandate(key, SQRT_PRICE_1_1, t, 100e18, 100e18, Position(-600, 600, 1_000e18));
+        t.epochs = 104;
         leash.createMandate(key, SQRT_PRICE_1_1, t, 100e18, 100e18, Position(-600, 600, 1_000e18));
         vm.prank(alice);
         leash.bid(key, 10e18);
-        vm.warp(auctionEnd + 366 hours);
+        vm.warp(auctionEnd + 105 hours);
         uint256 g = gasleft();
         leash.close(key);
         uint256 used = g - gasleft();
-        emit log_named_uint("close() gas", used);
+        emit log_named_uint("close() gas, 104 unsettled epochs", used);
         assertLt(used, 1 << 24, "close fits under the EIP-7825 tx gas cap");
+        assertEq(_m().settled, 104);
     }
 
     // ================================================================ coverage: post-end judging

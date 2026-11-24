@@ -281,11 +281,11 @@ export function createStory(canvas: HTMLCanvasElement) {
     settle() {
       const nar = narrow();
       const cards: { n: number; up: number; ok: boolean; out: string; at: number }[] = [
-        { n: 3, up: 99.2, ok: true, out: '30% of the fees to the manager', at: 0.04 },
-        { n: 4, up: 91.7, ok: false, out: 'bond to the treasury, manager fired', at: 0.5 },
+        { n: 3, up: 99.2, ok: true, out: 'Manager earns 30% of the fees', at: 0.04 },
+        { n: 4, up: 91.7, ok: false, out: 'Bond to the treasury, manager fired', at: 0.5 },
       ];
       // Fixed rows inside each card, so it reads the same at any size.
-      const cw = nar ? W - 32 : Math.min(W * 0.4, 380), ch = nar ? 206 : 300, pad = nar ? 20 : 28;
+      const cw = nar ? W - 32 : Math.min(W * 0.4, 380), ch = nar ? 236 : 300, pad = nar ? 20 : 28;
       const big = nar ? 34 : 52;
       cards.forEach((c, i) => {
         const cx = nar ? 16 : W / 2 + (i === 0 ? -cw - 12 : 12);
@@ -315,7 +315,11 @@ export function createStory(canvas: HTMLCanvasElement) {
         ctx.font = `600 12px ${MONO}`;
         const sw = ctx.measureText(label).width + 27;
         pill(label, bx0 + sw / 2, sy, c.ok ? th.good : th.bad, th.bg, { alpha: stamp, size: 12, h: 30 });
-        text(c.out, bx0 + sw + 12, sy, th.fg, { alpha: stamp, upper: false, font: SANS, size: nar ? 12.5 : 14, weight: 500 });
+        // The outcome gets its own row above the stamp, shrunk until it fits inside the card.
+        let size = nar ? 13 : 15;
+        ctx.font = `500 ${size}px ${SANS}`;
+        while (size > 10 && ctx.measureText(c.out).width > bx1 - bx0) ctx.font = `500 ${--size}px ${SANS}`;
+        text(c.out, bx0, sy - 36, th.fg, { alpha: stamp, upper: false, font: SANS, size, weight: 500 });
       });
     },
   };

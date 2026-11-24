@@ -198,7 +198,6 @@ scripts/local.sh           one command: fresh anvil with everything deployed
 scripts/keeper.sh          runs the keeper every minute
 deployments/               addresses per chain, and the ABI for the frontend
 frontend/                  landing page (Vite + React + TypeScript)
-frontend/cutout.swift      rebuilds the hero's animation layers from the source art (macOS)
 ```
 
 ## Running it

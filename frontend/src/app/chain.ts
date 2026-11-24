@@ -6,6 +6,7 @@ import {
 } from 'viem';
 import leashJson from '../../../deployments/abi/Leash.json' with { type: 'json' };
 import dep1301 from '../../../deployments/1301.json' with { type: 'json' };
+import tok1301 from '../../../deployments/1301-tokens.json' with { type: 'json' }; // TKN and mUSDC: the create form's defaults
 import dep31337 from '../../../deployments/31337.json' with { type: 'json' };
 
 // v4-core errors that can surface through Leash calls (pool creation, tick checks, hook wrapping).
@@ -27,7 +28,7 @@ export type Deployment = { chainId: number; leash: Address; poolManager: Address
 export type Net = { id: number; name: string; short: string; rpc: string; rpcs?: string[]; explorer: string; logsApi?: string; dep: Deployment };
 
 export const NETS: Record<number, Net> = {
-  1301: { id: 1301, name: 'Unichain Sepolia', short: 'Unichain', rpc: 'https://sepolia.unichain.org', rpcs: [import.meta.env?.VITE_UNICHAIN_RPC, 'https://unichain-sepolia-rpc.publicnode.com', 'https://unichain-sepolia.drpc.org', 'https://sepolia.unichain.org'].filter(Boolean) as string[], explorer: 'https://unichain-sepolia.blockscout.com', logsApi: 'https://unichain-sepolia.blockscout.com/api', dep: dep1301 as Deployment },
+  1301: { id: 1301, name: 'Unichain Sepolia', short: 'Unichain', rpc: 'https://sepolia.unichain.org', rpcs: [import.meta.env?.VITE_UNICHAIN_RPC, 'https://unichain-sepolia-rpc.publicnode.com', 'https://unichain-sepolia.drpc.org', 'https://sepolia.unichain.org'].filter(Boolean) as string[], explorer: 'https://unichain-sepolia.blockscout.com', logsApi: 'https://unichain-sepolia.blockscout.com/api', dep: { ...dep1301, ...tok1301 } as Deployment },
   31337: { id: 31337, name: 'Local anvil', short: 'Local', rpc: 'http://127.0.0.1:8545', explorer: '', dep: dep31337 as Deployment },
 };
 export const viemChain = (n: Net) => defineChain({

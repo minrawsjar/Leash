@@ -16,3 +16,4 @@ frontend/dist/
 
 # Agent worktrees
 .claude/
+*.tsbuildinfo

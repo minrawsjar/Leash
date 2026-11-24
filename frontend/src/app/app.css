@@ -431,6 +431,7 @@
   }
   @media (max-width: 720px) {
     .grid, .form-grid { grid-template-columns: minmax(0, 1fr); }
+    .lx-top { position: static; }
     .lx-bar { gap: 10px; height: auto; padding: 10px 10px 10px 14px; border-radius: 16px; flex-wrap: wrap; }
     .lx-nav { order: 3; width: 100%; gap: 0; overflow-x: auto; scrollbar-width: none; }
     .lx-nav a { flex: none; padding: 6px 7px; font-size: 13px; white-space: nowrap; }

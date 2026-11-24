@@ -233,7 +233,7 @@ function Timeline({ s, records, now }: { s: Snapshot; records: EpochRecord[]; no
       {Array.from({ length: t.epochs }, (_, e) => {
         const r = records[e];
         const start = t.auctionEnd + e * t.epochLength, end = start + t.epochLength;
-        const state = r?.settled ? (r.clean ? 'clean' : 'breached') : now >= end ? 'due' : now >= start && s.status === 'active' ? 'now' : 'later';
+        const state = r?.settled ? (r.clean ? 'clean' : 'breached') : s.status === 'closed' ? 'off' : now >= end ? 'due' : now >= start && s.status === 'active' ? 'now' : 'later';
         const total = r ? r.inSecs + r.outSecs : 0;
         const up = total ? (r!.inSecs * 10_000) / total : 0;
         const f = r ? [t.stableIs0 ? r.fees1 : r.fees0, t.stableIs0 ? r.fees0 : r.fees1] : [0n, 0n];
@@ -246,7 +246,7 @@ function Timeline({ s, records, now }: { s: Snapshot; records: EpochRecord[]; no
               <i className="cut" style={{ left: `${t.uptimeBps / 100}%` }} />
             </span>
             <span className="ep-txt">
-              <b>{state === 'clean' ? 'Clean' : state === 'breached' ? 'Breached' : state === 'due' ? 'Ended · settle' : state === 'now' ? 'In progress' : 'Upcoming'}</b>
+              <b>{state === 'clean' ? 'Clean' : state === 'breached' ? 'Breached' : state === 'due' ? 'Ended · settle' : state === 'off' ? 'Not run · closed' : state === 'now' ? 'In progress' : 'Upcoming'}</b>
               <small>{total ? `${dur(r!.inSecs)} in · ${dur(r!.outSecs)} out · ${pct(up, 1)} up` : new Date(start * 1000).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</small>
               {(f[0] > 0n || f[1] > 0n) && <small>fees {fmt(f[0], token.decimals, 4)} {token.symbol} · {fmt(f[1], stable.decimals, 4)} {stable.symbol}</small>}
             </span>

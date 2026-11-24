@@ -16,13 +16,9 @@ const range = (v: number, a: number, b: number) => clamp((v - a) / (b - a), 0, 1
 const smooth = (t: number) => t * t * (3 - 2 * t);
 const wrap = (s: number) => ((s % P) + P) % P;
 
-const C = {
-  ink: '11, 13, 31',
-  cream: '238, 240, 255',
-  mint: '78, 240, 176',
-  violet: '139, 123, 255',
-  rose: '255, 93, 143',
-};
+// The theme's colours (theme.css `--x-rgb` triplets), as "r, g, b" for rgba().
+const tok = (n: string) => getComputedStyle(document.documentElement).getPropertyValue(`--${n}-rgb`).trim().split(/\s+/).join(', ');
+let C = { ink: '', cream: '', mint: '', violet: '', rose: '' }; // read in mountHero, once the stylesheet is applied
 const rgba = (c: string, a: number) => `rgba(${c}, ${a.toFixed(3)})`;
 
 // ── the path, precomputed once ───────────────────────────────────────────
@@ -98,6 +94,7 @@ const LH = 22;
 const START = 3; // the loop opens calm, inside the range, with the one-block push still ahead
 
 export function mountHero(hero: HTMLElement, canvas: HTMLCanvasElement, { reduced, freeze }: { reduced: boolean; freeze: number | null }) {
+  C = { ink: tok('ink'), cream: tok('cream'), mint: tok('mint'), violet: tok('violet'), rose: tok('rose') };
   const ctx = canvas.getContext('2d')!;
   let W = 0, H = 0, cw = 7.2, cols = 0;
   let rows: string[] = [];

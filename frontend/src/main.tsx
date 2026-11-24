@@ -1,7 +1,7 @@
 import { StrictMode, Suspense, lazy } from 'react';
 import { createRoot } from 'react-dom/client';
+import './theme.css'; // first: the canvases read its colour tokens
 import { Site } from './site/Site';
-import './theme.css';
 
 // Two pages, no router dependency: the landing site at /, the dApp at /app. The app (and viem) loads only on /app.
 const App = lazy(() => import('./app/App').then((m) => ({ default: m.App })));

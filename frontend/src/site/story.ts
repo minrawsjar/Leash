@@ -11,16 +11,21 @@
 export type RGBA = [number, number, number, number];
 export type Theme = Record<'bg' | 'fg' | 'muted' | 'line' | 'mark' | 'anchor' | 'bond' | 'card' | 'good' | 'bad', RGBA>;
 
-const INK: RGBA = [11, 13, 31, 1], CREAM: RGBA = [238, 240, 255, 1], MINT: RGBA = [78, 240, 176, 1];
-const VIOLET: RGBA = [139, 123, 255, 1], ROSE: RGBA = [255, 93, 143, 1];
+// The theme's colours (theme.css `--x-rgb` triplets).
+const tok = (n: string): RGBA => [...getComputedStyle(document.documentElement).getPropertyValue(`--${n}-rgb`).trim().split(/\s+/).map(Number), 1] as RGBA;
 const a = (c: RGBA, alpha: number): RGBA => [c[0], c[1], c[2], alpha];
 
-export const THEMES: Record<'dark' | 'violet' | 'cream' | 'mint', Theme> = {
-  dark: { bg: INK, fg: CREAM, muted: [163, 168, 201, 1], line: a(CREAM, 0.14), mark: MINT, anchor: a(CREAM, 0.22), bond: VIOLET, card: [24, 28, 58, 1], good: MINT, bad: ROSE },
-  violet: { bg: VIOLET, fg: INK, muted: a(INK, 0.68), line: a(INK, 0.2), mark: INK, anchor: a(INK, 0.22), bond: INK, card: a(INK, 0.1), good: INK, bad: ROSE },
-  cream: { bg: CREAM, fg: INK, muted: [76, 80, 118, 1], line: a(INK, 0.14), mark: INK, anchor: a(INK, 0.18), bond: VIOLET, card: a(INK, 0.06), good: INK, bad: ROSE },
-  mint: { bg: MINT, fg: INK, muted: a(INK, 0.66), line: a(INK, 0.18), mark: INK, anchor: a(INK, 0.2), bond: INK, card: a(INK, 0.08), good: INK, bad: ROSE },
-};
+export let THEMES = {} as Record<'dark' | 'violet' | 'cream' | 'mint', Theme>;
+/** Builds THEMES from the stylesheet's tokens; call once mounted (the stylesheet must be applied). */
+export function readThemes() {
+  const INK = tok('ink'), CREAM = tok('cream'), MINT = tok('mint'), VIOLET = tok('violet'), ROSE = tok('rose');
+  THEMES = {
+    dark: { bg: INK, fg: CREAM, muted: tok('muted'), line: a(CREAM, 0.14), mark: MINT, anchor: a(CREAM, 0.22), bond: VIOLET, card: tok('raised'), good: MINT, bad: ROSE },
+    violet: { bg: VIOLET, fg: INK, muted: a(INK, 0.68), line: a(INK, 0.2), mark: INK, anchor: a(INK, 0.22), bond: INK, card: a(INK, 0.1), good: INK, bad: ROSE },
+    cream: { bg: CREAM, fg: INK, muted: a(INK, 0.7), line: a(INK, 0.14), mark: INK, anchor: a(INK, 0.18), bond: VIOLET, card: a(INK, 0.06), good: INK, bad: ROSE },
+    mint: { bg: MINT, fg: INK, muted: a(INK, 0.66), line: a(INK, 0.18), mark: INK, anchor: a(INK, 0.2), bond: INK, card: a(INK, 0.08), good: INK, bad: ROSE },
+  };
+}
 const lerp = (x: number, y: number, t: number) => x + (y - x) * t;
 export const blendTheme = (x: Theme, y: Theme, t: number): Theme =>
   Object.fromEntries(Object.keys(x).map((k) => [k, x[k as keyof Theme].map((v, i) => lerp(v, y[k as keyof Theme][i], t))])) as Theme;

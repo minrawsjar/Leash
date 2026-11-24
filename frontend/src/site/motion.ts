@@ -1,7 +1,7 @@
 // The page's motion, wired once the markup is in: the hero canvas, the story the scroll plays, the nav's
 // menus, reveals and counters, the phone's screens. Returns a cleanup for React.
 import { mountHero } from './hero';
-import { THEMES, blendTheme, createStory, css, type Scene } from './story';
+import { THEMES, blendTheme, createStory, css, readThemes, type Scene } from './story';
 
 const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v));
 const SCENES: Scene[] = ['deposit', 'auction', 'manage', 'checks', 'settle'];
@@ -9,6 +9,7 @@ const LOOK: (keyof typeof THEMES)[] = ['dark', 'violet', 'cream', 'mint', 'dark'
 const STILL = [0.92, 0.95, 0.95, 0.9, 0.95]; // each scene's most telling moment, for the still version
 
 export function mount(root: HTMLElement) {
+  readThemes();
   const $ = <T extends Element = HTMLElement>(s: string) => root.querySelector(s) as T;
   const $$ = <T extends Element = HTMLElement>(s: string) => [...root.querySelectorAll(s)] as T[];
   const params = new URLSearchParams(location.search);

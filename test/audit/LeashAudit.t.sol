@@ -292,4 +292,51 @@ contract LeashAuditTest is Test, Deployers {
         leash.close(b);
         assertEq(MockERC20(phantom).balanceOf(eve), 0, "attacker took another mandate's tokens");
     }
+
+    // ================================================================ M-2
+
+    /// M-2. The bond only ever comes back inside close(), which only the treasury can call. After a fully clean
+    /// mandate, every epoch settled by a third party, the manager has its pay but no route to its bond: a treasury
+    /// that never closes (lost keys, a governance contract without the call, extortion, a USDC-blacklisted treasury
+    /// whose close() reverts on the transfer) locks it forever.
+    function test_M2_cleanManagersBondIsHostageToTreasuryClose() public {
+        _win();
+        vm.warp(auctionEnd + 3 days);
+        for (uint256 e; e < 3; e++) {
+            vm.prank(eve);
+            leash.settle(key, e);
+        }
+        assertEq(_m().settled, 3);
+        assertFalse(_m().breached);
+
+        vm.startPrank(alice);
+        vm.expectRevert(Leash.NotTreasury.selector);
+        leash.close(key);
+        vm.expectRevert(Leash.BadEpoch.selector);
+        leash.settle(key, 3);
+        leash.claim(currency1);
+        vm.stopPrank();
+        assertEq(_bal(currency1, alice), 1_000e18, "clean manager has its bond back");
+    }
+
+    // ================================================================ L-1
+
+    /// L-1. close() settles every unsettled epoch in one transaction, each with its own unlock and position poke.
+    /// With the maximum 365 epochs and nobody settling along the way it costs ~28.7M gas: just under a 30M block but
+    /// well over the EIP-7825 per-transaction cap (2^24 = 16,777,216) on chains that enforce it. Workaround exists
+    /// (settle epochs one by one first), so funds aren't lost, but close() alone can't run.
+    function test_L1_closeAfter365UnsettledEpochsExceedsTxGasCap() public {
+        key = PoolKey(currency0, currency1, LPFeeLibrary.DYNAMIC_FEE_FLAG, 10, IHooks(address(leash)));
+        Terms memory t = _terms();
+        (t.epochs, t.epochLength) = (365, 1 hours);
+        leash.createMandate(key, SQRT_PRICE_1_1, t, 100e18, 100e18, Position(-600, 600, 1_000e18));
+        vm.prank(alice);
+        leash.bid(key, 10e18);
+        vm.warp(auctionEnd + 366 hours);
+        uint256 g = gasleft();
+        leash.close(key);
+        uint256 used = g - gasleft();
+        emit log_named_uint("close() gas", used);
+        assertLt(used, 1 << 24, "close fits under the EIP-7825 tx gas cap");
+    }
 }

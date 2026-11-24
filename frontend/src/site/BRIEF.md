@@ -1,4 +1,4 @@
-# Leash landing site: working brief (after round 2)
+# Leash landing site: working brief (after round 3)
 
 ## Goal
 One page at `/` that makes a treasury lead or a market maker understand Leash in one scroll, at Opaque's
@@ -55,10 +55,10 @@ src/Leash.sol. Abstract metaphor only: a price line, a TWAP band, liquidity bars
   settle cards rebuilt on fixed rows; auction bids stack on phones; attack steps beside the chart;
   phone screen got an activity list; final banner band moved below the copy and tiled seamlessly.
 
+- R3: nav dropdown, phone sheet, reduced motion and 390px overflow checked (scrollWidth 390 = innerWidth).
+  Live hero now opens at loop second 3 (calm, in range) instead of mid-recovery from the last breach;
+  facts align their numbers at the top; tour tile art enlarged.
+
 ## Open problems (next round)
-1. Check the nav dropdown and the phone menu sheet open (no shot yet).
-2. Check reduced motion (?still): stacked scenes with still canvases.
-3. Story canvas on violet/mint: managed bars and pills should read at a glance; deposit labels overlap
-   bars on phones.
-4. Tile art in the tour (fee slider, clock) is small for its tile; consider bigger art.
-5. Hero: does the loop read without the labels? Try a live (unfrozen) shot mid-slash.
+1. index.html: favicon from the mark, description that matches the page.
+2. One last full pass at 1440 and 390 over every section for type rhythm and leftovers.

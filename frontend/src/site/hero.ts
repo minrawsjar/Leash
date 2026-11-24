@@ -95,6 +95,7 @@ const row = (cols: number) => { let t = ''; while (t.length < cols) t += (t ? ' 
 // ── drawing ──────────────────────────────────────────────────────────────
 const MONO = '"JetBrains Mono", ui-monospace, Menlo, monospace';
 const LH = 22;
+const START = 3; // the loop opens calm, inside the range, with the one-block push still ahead
 
 export function mountHero(hero: HTMLElement, canvas: HTMLCanvasElement, { reduced, freeze }: { reduced: boolean; freeze: number | null }) {
   const ctx = canvas.getContext('2d')!;
@@ -115,7 +116,7 @@ export function mountHero(hero: HTMLElement, canvas: HTMLCanvasElement, { reduce
     cols = Math.ceil(W / cw) + 4;
     seed = 20261127;
     rows = Array.from({ length: Math.ceil(H / LH) + 2 }, () => row(cols));
-    draw(still ? fixedT : (performance.now() - born) / 1000 + 1.5);
+    draw(still ? fixedT : (performance.now() - born) / 1000 + START);
   }
 
   function geo() {
@@ -338,7 +339,7 @@ export function mountHero(hero: HTMLElement, canvas: HTMLCanvasElement, { reduce
     if (last) offset += 14 * Math.min(0.05, now - last);
     last = now;
     while (offset >= LH) { offset -= LH; rows.shift(); rows.push(row(cols)); }
-    draw((ms - born) / 1000 + 1.5);
+    draw((ms - born) / 1000 + START);
     frame = requestAnimationFrame(loop);
   }
   const start = () => { if (running || still) return; running = true; last = 0; frame = requestAnimationFrame(loop); };

@@ -94,6 +94,17 @@ export function Index({ refresh }: { refresh: number }) {
             <div className="stat"><span className="eyebrow">Latest block</span><strong className="mono">{head ? String(head.block) : '–'}</strong></div>
           </div>
 
+          <section className="x-cta" aria-labelledby="cta">
+            <div>
+              <h2 id="cta">Create your own mandate</h2>
+              <p>Deposit a token pair, set the rules (range, depth, fee band, uptime) and auction the job. The winning manager runs your liquidity under a bond, and you can take everything back at the end.</p>
+            </div>
+            <div className="x-cta-acts">
+              <a className="btn primary" href="#/create">Post a mandate</a>
+              <a className="btn secondary" href="#/create/ai">Draft it with AI</a>
+            </div>
+          </section>
+
           {snaps.length === 0 ? (
             <div className="empty card">
               <p>No mandates on {net.name} yet.</p>

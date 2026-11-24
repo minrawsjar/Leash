@@ -1,6 +1,6 @@
 // Post a mandate (treasury): a term sheet in five numbered sections, every field explained, every createMandate
 // check shown at the field it belongs to, and an assistant that drafts the sheet from plain words (never signs).
-import { useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { erc20Abi, zeroAddress, type Address } from 'viem';
 import { client, dur, feePct, fmtLiq, fmtNum, leashAbi, pct, poolId, short, token } from './chain.ts';
 import * as act from './actions.ts';
@@ -49,6 +49,7 @@ const EXAMPLES: [string, string][] = [
 
 export function Create() {
   const { net, wallet } = useApp();
+  useEffect(() => { if (location.hash.endsWith('/ai')) document.getElementById('assist-t')?.focus(); }, []);
   const [f, setF] = useState<Form>(() => defaultForm(net.dep.tkn, net.dep.usdc));
   const [why, setWhy] = useState<Partial<Record<Field, string>>>({});
   const set = (k: Field) => (v: string) => {

@@ -1455,6 +1455,11 @@
             "internalType": "uint40"
           },
           {
+            "name": "lastGrow",
+            "type": "uint40",
+            "internalType": "uint40"
+          },
+          {
             "name": "terms",
             "type": "tuple",
             "internalType": "struct Terms",
@@ -2044,6 +2049,11 @@
   },
   {
     "type": "error",
+    "name": "GrowTooFast",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "HookNotImplemented",
     "inputs": []
   },
@@ -2110,6 +2120,11 @@
   {
     "type": "error",
     "name": "SpotOffTwap",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "ThinAnchor",
     "inputs": []
   },
   {

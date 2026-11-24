@@ -85,9 +85,10 @@ Nothing was withdrawn, yet the treasury lost money. Leash blocks this with a **T
 
 - **Rebalance guard.** Liquidity can only be placed while the pool price is close to the TWAP. A price pushed for one block is far from the average, so the rebalance reverts.
 - **Anchor: liquidity at every price.** At creation the treasury places a permanent full-range position that the manager can never move. With no empty price range, moving or holding the price anywhere costs capital and invites arbitrage. Without it, the price outside the treasury's range could be parked for free and the TWAP dragged.
-- **No sandwiches.** At most one rebalance per block, none after the price has moved in that block, a minimum range width around the TWAP, a fee floor, and the position may only grow while spot sits at the TWAP. A manager who nudges the price and re-ranges behind it pays more in fees than it can extract.
+- **No sandwiches.** At most one rebalance per block, a minimum range width around the TWAP and a fee floor. The position may only grow while spot sits at the TWAP, never after the price moved in that block, and by at most 5% per TWAP window. A manager who nudges the price and re-ranges behind it at the same size meets the same liquidity both ways, so it pays fees for nothing.
 - **Truncated oracle.** Each recorded price may move at most 50 ticks (about 0.5%) per second. A real crash shows up within a minute or so, but a price parked for one block moves the 30-minute TWAP by a few ticks at most.
-- **Grief guard.** Compliance is measured against the TWAP, not the current price. An outsider can't knock the price out of range for one block to get the manager slashed.
+- **Grief guard.** Compliance is measured against the TWAP, not the current price. An outsider can't knock the price out of range for one block to get the manager slashed, and a one-tick nudge can't veto a repair: only growth needs an unmoved block.
+- **Anchor floor.** `createMandate` refuses an anchor worth less than about 20% of the deposit. A thinner one made the drag attack below pay.
 
 v4 has no built-in oracle, so the hook stores its own price observations. It records one in `beforeSwap`, at the first swap of each block, using the price *before* that swap (the same approach as Uniswap v3's oracle). Moving the price and moving it back within one block leaves no trace in the TWAP.
 
@@ -152,19 +153,20 @@ Hookathon deadline is 3 December 2026.
 | Deploy script, local dev chain, keeper | ✅ |
 | Landing page (React + TypeScript) | ✅ |
 | Independent security audit: 2 critical, 1 high, 2 medium, 1 low found and fixed; each attack kept as a regression test | ✅ |
-| Re-audit of the fixes | 🔨 in progress |
+| Re-audit of the fixes: 1 high, 2 medium, 2 low found; fixed or bounded and documented below, each kept as a test | ✅ |
 | Unichain Sepolia deployment (source verified) | ✅ |
 | App screens: create a mandate, bid, manage, dashboard | ⏳ |
 
 ### Known limits
 
 - **Arbitrage keeps the price honest.** The pool holds only the treasury's liquidity, so its price tracks the wider market only as well as arbitrageurs link the two.
-- **The TWAP assumes arbitrage.** If nobody trades the pool back toward the market, holding a price costs nothing and any TWAP can be dragged. The anchor turns holding into a cost: keeping the price X ticks away for one block costs about (anchor + managed liquidity in the path) × (X/20000)², paid to the arbitrageur who trades it back. Dragging the TWAP means paying that every block for a whole window. The cost grows with the anchor's size, with blocks per window and with the square of the distance. Size the anchor and `minLiquidity` so dragging costs far more than a bond, or than what a manager could extract around a fake price. In the audit's test setup (12-second blocks, anchor about 20% of value), dragging cost 3–8× what it could extract, and forcing an honest manager's breach cost 68× the bond. On 1-second blocks each figure is about 12× higher.
-- **Managers can't deepen during trends.** While spot is off the TWAP they can re-range at the same or smaller size; growing the position waits until the TWAP catches up.
+- **The TWAP assumes arbitrage.** If nobody trades the pool back toward the market, holding a price costs nothing and any TWAP can be dragged. The anchor turns holding into a cost: keeping the price X ticks away for one block costs about (anchor + managed liquidity in the path) × (X/20000)², paid to the arbitrageur who trades it back. Dragging the TWAP means paying that every block for a whole window. The cost grows with the anchor's size, with blocks per window and with the square of the distance. Size the anchor and `minLiquidity` so dragging costs far more than a bond, or than what a manager could extract around a fake price. In the audit's test setup (12-second blocks, anchor about 20% of value), dragging the TWAP 200–1,200 ticks cost 45–320× what re-placing around it could then extract (the 5% growth cap is what keeps extraction small), and forcing an honest manager's breach cost 68× the bond. On 1-second blocks the 1,024-slot oracle holds about 17 minutes while the drag swaps every block, so the factor is about 7×, not 12×.
+- **Managers deepen slowly.** Growth needs spot at the TWAP and is capped at 5% per TWAP window, so going from the depth floor to 10× takes about 47 windows. Re-ranging and shrinking are never rate-limited.
+- **An informed manager can still place badly on purpose.** Nothing on-chain shows the TWAP is stale. A manager who knows of a market jump before the pool trades can re-range into its path at the old price and arbitrage the treasury itself. That looks the same as an honest re-range. The growth cap bounds it, and in the audit setup it costs the treasury about 0.3% of inventory beyond what any arbitrageur takes on a 10% jump, and 2.6% on a 35% jump. This is the trust that remains in any delegated LP manager; the track record and the auction price it.
 - **ERC-20 only.** Native ETH pools are rejected.
 - **One mandate per pool.** One hook serves many pools.
 - **Oracle history is fixed at 1,024 observations** (one per block with a swap). A pool swapped every block on 1-second blocks keeps about 17 minutes, and longer windows quietly shorten to what's held. A growable buffer, as in Uniswap v3, would lift this.
-- **Fast trends.** While spot runs far from the TWAP, rebalances are refused, and out-of-range time counts against the manager. The uptime allowance is the only slack.
+- **Fast trends.** While spot runs more than `maxTickDeviation` from the TWAP, rebalances are refused, and out-of-range time counts against the manager. The uptime allowance is the only slack: in the re-audit, four 30% swings in one day breached an honest manager on a ±600-tick range. Allowing re-ranges at any gap would reopen the sandwich, so managers of volatile tokens keep wide ranges, and treasuries set `maxTickDeviation` and `uptimeBps` for the token.
 - **Fees are booked when collected.** A late settle counts some of the next epoch's fees toward the earlier one; the keeper settles promptly.
 - **Quiet pools need the keeper.** Without checkpoints, a long gap is judged only by its endpoints, and the first swap after a gap spanning many epochs pays to book them all (about 23k gas per epoch).
 - **Standard ERC-20s only.** Fee-on-transfer and rebasing tokens are not supported.

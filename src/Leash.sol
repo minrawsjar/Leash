@@ -63,6 +63,7 @@ struct Mandate {
     bool closed;
     bool swept; // fees earned before the manager's first epoch went to the treasury
     uint40 lastRebalance; // timestamp of the last rebalance: at most one per block
+    uint40 lastGrow; // timestamp of the last rebalance that grew the managed position
     Terms terms;
 }
 
@@ -99,6 +100,13 @@ int256 constant MAX_MOVE = 50;
 // fair loses the treasury at most ~L(d/20000)^2 when the price returns, while the trader moving it back pays
 // ~L(d/20000) times the fee: at d <= 2 that's a loss for the trader at any fee >= 0.01%.
 int256 constant MAX_GROW_GAP = 2;
+// Nothing on-chain shows the TWAP is stale after a real move, and growing at a stale TWAP then trading to the market
+// takes the difference from the treasury. So exposure grows slowly: at most 5% per rebalance, once per TWAP window.
+// The extra loss per market move is bounded by that one step, not the whole inventory.
+uint256 constant GROW_BPS = 500;
+// The anchor must hold ~20% of the deposit's value (19%, so the audited 20% config passes after rounding): at 10%,
+// drag-and-extract pays (re-audit R-4); at 20% it costs ~2x what it extracts.
+uint256 constant MIN_ANCHOR_BPS = 1900;
 bytes32 constant ANCHOR = bytes32(uint256(1)); // salt of the full-range anchor; the managed position uses 0
 // ponytail: one checkpoint after a long quiet spell writes every epoch it spans (~23k gas each), and close() settles
 // every unsettled epoch (~80k each). 104 (two years of weekly epochs) keeps both under the 2^24 per-transaction gas
@@ -136,6 +144,8 @@ contract Leash is BaseHook, IUnlockCallback {
     error RangeMissesTwap();
     error SpotOffTwap();
     error SameBlock();
+    error GrowTooFast();
+    error ThinAnchor();
     error Breached();
     error BadEpoch();
 
@@ -271,6 +281,7 @@ contract Leash is BaseHook, IUnlockCallback {
         ModifyLiquidityParams[2] memory ops;
         ops[0] = _anchorOp(key, int256(uint256(t.anchorLiquidity)));
         _modify(key, m, ops);
+        _checkAnchor(key, sqrtPriceX96, t.anchorLiquidity, amount0, amount1);
         emit MandateCreated(id, msg.sender, key, amount0, amount1);
     }
 
@@ -321,20 +332,7 @@ contract Leash is BaseHook, IUnlockCallback {
         Mandate storage m = _active(key);
         PoolId id = key.toId();
         (, int24 spot,,) = poolManager.getSlot0(id);
-        // The TWAP can't see within a block, so no same-block games: one rebalance per block, and none once the
-        // price has moved this block (a manager could push it and re-place liquidity behind the push).
-        Oracle storage o = _oracles[id];
-        if (m.lastRebalance == block.timestamp || (o.obs[o.index].time == block.timestamp && spot != o.open)) {
-            revert SameBlock();
-        }
-        m.lastRebalance = uint40(block.timestamp);
-        int24 twap = _twap(id, m.terms.twapWindow);
-        int256 gap = int256(spot) - twap;
-        if (gap < 0) gap = -gap;
-        if (gap > int256(uint256(m.terms.maxTickDeviation))) revert SpotOffTwap();
-        // A sandwich only pays if the position is bigger on the way back than on the way out: growing it is
-        // allowed only with spot at the TWAP. Shrinking or re-ranging at the same size is symmetric, so fees lose.
-        if (liquidity > m.liquidity && gap > MAX_GROW_GAP) revert SpotOffTwap();
+        int24 twap = _guard(id, m, spot, liquidity);
         _sweep(key, m);
         _checkpoint(key, m);
         (uint256 f0, uint256 f1) = _place(key, m, twap, spot, tickLower, tickUpper, liquidity);
@@ -342,6 +340,33 @@ contract Leash is BaseHook, IUnlockCallback {
         (r.fees0, r.fees1) = (r.fees0 + uint128(f0), r.fees1 + uint128(f1));
         m.lastOk = _ok(key, m); // the next interval starts from the fixed position
         emit Rebalanced(id, tickLower, tickUpper, liquidity);
+    }
+
+    /// Rebalance guards; returns the TWAP.
+    function _guard(PoolId id, Mandate storage m, int24 spot, uint128 liquidity) internal returns (int24 twap) {
+        // The TWAP can't see within a block, so one rebalance per block. Growth is also refused once the price has
+        // moved this block (a manager could push it and grow liquidity behind the push). Shrinking or re-ranging
+        // at the same size is symmetric, so an in-block move doesn't block it: a one-tick nudge can't veto repairs.
+        Oracle storage o = _oracles[id];
+        bool grow = liquidity > m.liquidity;
+        if (m.lastRebalance == block.timestamp || (grow && o.obs[o.index].time == block.timestamp && spot != o.open)) {
+            revert SameBlock();
+        }
+        m.lastRebalance = uint40(block.timestamp);
+        twap = _twap(id, m.terms.twapWindow);
+        int256 gap = int256(spot) - twap;
+        if (gap < 0) gap = -gap;
+        if (gap > int256(uint256(m.terms.maxTickDeviation))) revert SpotOffTwap();
+        if (grow) {
+            // A sandwich only pays if the position is bigger on the way back than on the way out: growth needs
+            // spot at the TWAP, and is rate-limited because the TWAP may lag a real move (see GROW_BPS).
+            if (gap > MAX_GROW_GAP) revert SpotOffTwap();
+            if (
+                block.timestamp < uint256(m.lastGrow) + m.terms.twapWindow
+                    || liquidity > uint256(m.liquidity) * (BPS + GROW_BPS) / BPS
+            ) revert GrowTooFast();
+            m.lastGrow = uint40(block.timestamp);
+        }
     }
 
     function setFee(PoolKey calldata key, uint24 fee) external {
@@ -488,8 +513,23 @@ contract Leash is BaseHook, IUnlockCallback {
                 m.terms.anchorLiquidity
             );
         (a0, a1) = (a0 + b0 + m.idle0, a1 + b1 + m.idle1);
-        uint256 v0 = FullMath.mulDiv(FullMath.mulDiv(a0, p, FixedPoint96.Q96), p, FixedPoint96.Q96); // in currency1
+        uint256 v0 = _value(a0, 0, p); // in currency1
         return v0 + a1 == 0 ? 0 : uint16(FullMath.mulDiv(m.terms.stableIs0 ? v0 : a1, BPS, v0 + a1));
+    }
+
+    /// The anchor must hold at least MIN_ANCHOR_BPS of the deposit's value at the opening price.
+    function _checkAnchor(PoolKey calldata key, uint160 p, uint128 liq, uint256 amount0, uint256 amount1)
+        internal
+        pure
+    {
+        (uint256 a0, uint256 a1) =
+            _amounts(p, TickMath.minUsableTick(key.tickSpacing), TickMath.maxUsableTick(key.tickSpacing), liq);
+        if (_value(a0, a1, p) * BPS < _value(amount0, amount1, p) * MIN_ANCHOR_BPS) revert ThinAnchor();
+    }
+
+    /// a0 + a1 valued in currency1 at sqrt price p.
+    function _value(uint256 a0, uint256 a1, uint160 p) internal pure returns (uint256) {
+        return FullMath.mulDiv(FullMath.mulDiv(a0, p, FixedPoint96.Q96), p, FixedPoint96.Q96) + a1;
     }
 
     /// Token amounts of `liq` over [lo, hi) at sqrt price p.

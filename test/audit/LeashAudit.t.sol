@@ -166,7 +166,9 @@ contract LeashAuditTest is Test, Deployers {
         (uint160 l, uint160 h) = (_sqrt(m.tickLower), _sqrt(m.tickUpper));
         uint256 a0 = m.idle0 + (p < h ? SqrtPriceMath.getAmount0Delta(p > l ? p : l, h, m.liquidity, false) : 0);
         uint256 a1 = m.idle1 + (p > l ? SqrtPriceMath.getAmount1Delta(l, p < h ? p : h, m.liquidity, false) : 0);
-        return LiquidityAmounts.getLiquidityForAmounts(p, _sqrt(lo), _sqrt(hi), a0, a1) * 999 / 1000;
+        uint256 most = LiquidityAmounts.getLiquidityForAmounts(p, _sqrt(lo), _sqrt(hi), a0, a1) * 999 / 1000;
+        uint256 step = uint256(m.liquidity) * 10_500 / 10_000; // growth is capped at 5% per TWAP window
+        return uint128(most < step ? most : step);
     }
 
     /// Value gained since `start`, at the 1:1 market price, counting pay the hook owes (not the bond).
@@ -176,8 +178,9 @@ contract LeashAuditTest is Test, Deployers {
 
     // ================================================================ C-1
 
-    /// C-1, fixed: each move of the original loop is refused. The fee can't go to 0, the position can't be 60 ticks
-    /// wide, and a rebalance can't follow a push in the same block.
+    /// C-1, fixed: the fee can't go to 0 and the position can't be 60 ticks wide. A rebalance may follow a push in
+    /// the same block only if it doesn't grow the position, and then the push and the push back meet the same
+    /// liquidity, so the loop pays fees for nothing.
     function test_C1_managerDrainsBySameBlockSandwichLoop() public {
         _win();
         vm.startPrank(alice);
@@ -190,7 +193,22 @@ contract LeashAuditTest is Test, Deployers {
         _moveTo(alice, 60);
         vm.prank(alice);
         vm.expectRevert(Leash.SameBlock.selector);
-        leash.rebalance(key, -240, 240, 100e18);
+        leash.rebalance(key, -240, 240, 1_001e18); // growth after an in-block move
+
+        uint256 alice0 = _value(alice);
+        for (uint256 i; i < 20; i++) {
+            _moveTo(alice, leash.twapTick(key) + 99);
+            (int24 lo, int24 hi) = i % 2 == 0 ? _narrowest() : (int24(-600), int24(600));
+            vm.prank(alice);
+            leash.rebalance(key, lo, hi, 1_000e18); // same size, re-ranged behind the push
+            _moveTo(alice, 0);
+            _next(12);
+        }
+        vm.warp(auctionEnd + 1 days);
+        leash.settle(key, 0);
+        int256 pnl = _pnl(alice, alice0);
+        emit log_named_decimal_int("manager P&L over 20 same-block loops (incl. pay)", pnl, 18);
+        assertLe(pnl, 0, "same-size re-ranging behind a push loses");
     }
 
     /// The strongest sandwich still legal, one cycle per two blocks, fee at the 0.05% floor. Block 1: shrink to

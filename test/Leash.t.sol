@@ -7,6 +7,7 @@ import {MockERC20} from "solmate/src/test/utils/mocks/MockERC20.sol";
 import {Hooks} from "v4-core/libraries/Hooks.sol";
 import {LPFeeLibrary} from "v4-core/libraries/LPFeeLibrary.sol";
 import {StateLibrary} from "v4-core/libraries/StateLibrary.sol";
+import {FullMath} from "v4-core/libraries/FullMath.sol";
 import {TickMath} from "v4-core/libraries/TickMath.sol";
 import {SqrtPriceMath} from "v4-core/libraries/SqrtPriceMath.sol";
 import {LiquidityAmounts} from "v4-periphery/src/libraries/LiquidityAmounts.sol";
@@ -303,8 +304,8 @@ contract LeashTest is Test, Deployers {
         _win();
         _swapTo(false, 100e18, 400);
         vm.prank(alice);
-        vm.expectRevert(Leash.SameBlock.selector);
-        leash.rebalance(key, 0, 1200, 1_000e18);
+        vm.expectRevert(Leash.SameBlock.selector); // no growth once the price moved this block
+        leash.rebalance(key, 0, 1200, 1_000e18 + 1);
 
         vm.roll(block.number + 1);
         vm.warp(block.timestamp + 12);
@@ -341,8 +342,20 @@ contract LeashTest is Test, Deployers {
         _swapTo(true, 1e30, 0);
         vm.roll(block.number + 1);
         vm.warp(block.timestamp + 1 hours); // spot and TWAP agree again
-        vm.prank(alice);
+        vm.startPrank(alice);
+        vm.expectRevert(Leash.GrowTooFast.selector); // more than 5% at once
+        leash.rebalance(key, -1200, 1200, 1_050e18 + 1);
+        vm.roll(block.number + 1);
+        vm.warp(block.timestamp + 12);
+        leash.rebalance(key, -1200, 1200, 1_050e18);
+        vm.roll(block.number + 1);
+        vm.warp(block.timestamp + 12);
+        vm.expectRevert(Leash.GrowTooFast.selector); // again within one TWAP window
         leash.rebalance(key, -1200, 1200, 1_100e18);
+        vm.roll(block.number + 1);
+        vm.warp(block.timestamp + _m().terms.twapWindow);
+        leash.rebalance(key, -1200, 1200, 1_100e18);
+        vm.stopPrank();
     }
 
     function test_rebalance_followsSustainedMove() public {
@@ -371,8 +384,8 @@ contract LeashTest is Test, Deployers {
     function test_rebalance_swap_ledgerMatchesBalances() public {
         _win();
         vm.prank(alice);
-        leash.rebalance(key, -1200, 1200, 1_200e18);
-        assertEq(manager.getLiquidity(key.toId()), 1_200e18 + 20e18, "hook liquidity is live");
+        leash.rebalance(key, -1200, 1200, 1_050e18);
+        assertEq(manager.getLiquidity(key.toId()), 1_050e18 + 20e18, "hook liquidity is live");
 
         swap(key, true, -1e18, ZERO_BYTES); // someone buys currency1 with currency0
         vm.warp(block.timestamp + 1 hours);
@@ -394,11 +407,19 @@ contract LeashTest is Test, Deployers {
             + SqrtPriceMath.getAmount1Delta(
                 TickMath.getSqrtPriceAtTick(m.tickLower), SQRT_PRICE_1_1, m.liquidity, false
             );
-        uint128 l =
-            LiquidityAmounts.getLiquidityForAmount1(TickMath.getSqrtPriceAtTick(-1200), SQRT_PRICE_1_1, have1 + 5e18);
+        // Same liquidity (no growth), but a range reaching low enough to need 5e18 more currency1 than the mandate
+        // has: only the bond could pay for it, and the ledger refuses.
+        uint160 lo = uint160(FullMath.mulDiv(SQRT_PRICE_1_1, m.liquidity - have1 - 5e18, m.liquidity));
+        int24 tick = TickMath.getTickAtSqrtPrice(lo);
+        tick = tick - (tick % 60) - 60;
+        assertLe(
+            SqrtPriceMath.getAmount1Delta(TickMath.getSqrtPriceAtTick(tick), SQRT_PRICE_1_1, m.liquidity, true),
+            have1 + 10e18,
+            "within the bond's reach"
+        );
         vm.prank(alice);
         vm.expectRevert(stdError.arithmeticError);
-        leash.rebalance(key, -1200, 240, l);
+        leash.rebalance(key, tick, 240, m.liquidity);
     }
 
     function test_setFee_betweenFloorAndCap() public {

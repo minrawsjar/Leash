@@ -27,13 +27,21 @@ The app at `/app`: every Leash mandate, live, and every write a treasury, manage
 - Problems show at the field (rose line + rose text) AND in the receipt, where each one is a link that focuses its
   field. plan.ts owns the checks and says which field each belongs to (`at`, `owner`); a paired check (gap vs
   half-width) gets a short field-specific message on the second field instead of the same sentence twice.
+- Field errors are short and name the other number ("Must be below the minimum half-width (200 ticks)."); the
+  receipt keeps the full sentence that says why. A receipt row whose value fails a check turns rose.
+- Labels say which thing, not just what kind: "Token deposit" and "Stablecoin deposit", never "Deposit" twice.
 - Rose is for problems only. Violet only for the bond. Mint marks what the assistant filled (a dot before its
   reason, a mint underline) and the one "all checks pass" line.
 
 ## The assistant (POST /api/draft)
 - Server-side only: `frontend/api/draft.ts` (Vercel function; the dev server mounts the same handler). OpenRouter,
-  model constant `MODEL` = `anthropic/claude-haiku-5.5`, strict json_schema built from the zod `Draft` schema,
-  max_tokens 4000. Key: `OPENROUTER_API_KEY`, read from the repo root .env by vite.config.ts in dev (never
+  model constant `MODEL` = `anthropic/claude-haiku-5.5`, strict json_schema built from the zod `Raw` schema,
+  max_tokens 4000. The handler turns `Raw` into the `Draft` the page uses ({ value, why } | null per field).
+- Keep `Raw` flat: numbers at the top level, reasons as "field: reason" lines, no nullable/union types. One
+  {value, why} object per field made Anthropic refuse it ("compiled grammar is too large"), and union-typed
+  fields are capped. Any new field is one more top-level number, nothing nested.
+- Mark only what the draft changed. A mint dot on every field marks nothing. Example chips are short labels
+  ("Two-week trial") that put the full request in the box; three different shapes of request, not paraphrases. Key: `OPENROUTER_API_KEY`, read from the repo root .env by vite.config.ts in dev (never
   VITE_-prefixed), from process.env in production. `dist/` must never contain `sk-or-`.
 - It fills the form and stops. It never signs, approves or posts. Its output goes through applyDraft → plan(),
   so a bad value it picks is flagged exactly like a hand-typed one.
@@ -60,6 +68,9 @@ The app at `/app`: every Leash mandate, live, and every write a treasury, manage
   and then every fixed-position popover is placed against the wrong width.
 
 ## Open problems
+- The assistant has not yet answered one real request end to end: the first two live calls hit the grammar limit
+  (nested schema, then the size check), and the flat schema is verified only against stand-ins. Next real call
+  settles it; if the grammar is still too large, drop `strict` before cutting fields.
 - Wallet connect itself is only exercised through an injected shim (no real extension headless).
 - Unichain Sepolia has no mandates yet: only the empty state and the Blockscout log path are proven there.
 - The local chain's seeded mandate sits at spacing 60, so a fresh create form opens with one problem (pool taken)

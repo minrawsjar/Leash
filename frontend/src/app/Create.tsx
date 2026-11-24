@@ -186,9 +186,9 @@ export function Create() {
             <Row k="Auction ends">{ok ? when(ok.terms.auctionEnd) : '–'}</Row>
             <Row k="Runs">{ok ? <>{ok.terms.epochs} × {dur(ok.terms.epochLength)}<small>{dur(ok.terms.epochs * ok.terms.epochLength)} after the auction</small></> : '–'}</Row>
             <Row k="Bond floor" tone="violet">{f.minBond ? fmtNum(Number(f.minBond)) : '–'} {sym.stb}</Row>
-            <Row k="Fee band">{ok ? `${feePct(ok.terms.minFee)} – ${feePct(ok.terms.maxFee)}` : '–'}</Row>
+            <Row k="Fee band" tone={ok && ok.terms.minFee > ok.terms.maxFee ? 'rose' : undefined}>{ok ? `${feePct(ok.terms.minFee)} – ${feePct(ok.terms.maxFee)}` : '–'}</Row>
             <Row k="Pace">{f.startStablePct}% → {f.endStablePct}% stablecoin</Row>
-            <Row k="Anchor">{ok ? <>{pct(ok.anchorBps)} of value<small>needs 19%</small></> : '–'}</Row>
+            <Row k="Anchor" tone={ok && ok.anchorBps < 1900 ? 'rose' : undefined}>{ok ? <>{pct(ok.anchorBps)} of value<small>needs 19%</small></> : '–'}</Row>
             <Row k="Manager">{f.uptimePct}% uptime · {f.managerFeePct}% of fees</Row>
           </dl>
 
@@ -242,7 +242,7 @@ function exactCall(p: NonNullable<Extract<ReturnType<typeof plan>, { key: unknow
 pool ${p.id}`;
 }
 
-function Row({ k, children, tone }: { k: string; children: ReactNode; tone?: 'violet' }) {
+function Row({ k, children, tone }: { k: string; children: ReactNode; tone?: 'violet' | 'rose' }) {
   return <div className="rrow"><dt>{k}</dt><dd className={tone}>{children}</dd></div>;
 }
 

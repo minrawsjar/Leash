@@ -112,7 +112,7 @@ export function plan(f: Form, hook: Address, tok: Token | null, stb: Token | nul
   for (const [v, k, n] of [[terms.uptimeBps, 'uptimePct', 'Uptime'], [terms.managerFeeBps, 'managerFeePct', 'The manager\'s share'], [terms.startStableBps, 'startStablePct', 'The start cap'], [terms.endStableBps, 'endStablePct', 'The end cap']] as const)
     if (!(v >= 0 && v <= 10_000)) bad(k, `${n} must be 0–100%.`);
   if (terms.maxTickDeviation >= terms.minHalfWidth) bad(['maxTickDeviation', 'minHalfWidth'], 'The minimum half-width must exceed the max spot–TWAP gap, so a pushed spot can never reach the edge of the range.',
-    { minHalfWidth: `Must exceed the max spot–TWAP gap (${terms.maxTickDeviation} ticks).` });
+    { maxTickDeviation: `Must be below the minimum half-width (${terms.minHalfWidth} ticks).`, minHalfWidth: `Must exceed the max spot–TWAP gap (${terms.maxTickDeviation} ticks).` });
   if (terms.anchorLiquidity <= 0n) bad('anchorPct', 'The anchor works out to zero liquidity.');
   // ThinAnchor and the opening position's own checks (_place, with TWAP = spot = the opening tick)
   if (anchorBps < MIN_ANCHOR_BPS) bad('anchorPct', `The anchor holds ${(anchorBps / 100).toFixed(1)}% of the deposit's value; it must hold at least ${MIN_ANCHOR_BPS / 100}% (ThinAnchor).`);

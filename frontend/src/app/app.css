@@ -289,6 +289,7 @@
   .rrow dd { display: grid; margin: 0; color: var(--cream); font: 400 12.5px/1.5 var(--mono); text-align: right; }
   .rrow dd small { color: var(--faint); font-size: 11px; }
   .rrow dd.violet { color: var(--violet); }
+  .rrow dd.rose { color: var(--rose); }
   .rose { color: var(--rose); }
   .rcpt-issues { padding-top: 14px; border-top: 1px solid var(--line); }
   .rcpt-issues ul { padding: 0; list-style: none; }

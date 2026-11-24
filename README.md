@@ -10,7 +10,6 @@
 [![Uniswap v4](https://img.shields.io/badge/Uniswap%20v4-hook%20·%20flags%200x2880-4EF0B0?style=flat-square&labelColor=0B0D1F)](src/README.md)
 [![Unichain Sepolia](https://img.shields.io/badge/Unichain%20Sepolia-source%20verified-8B7BFF?style=flat-square&labelColor=0B0D1F)](https://unichain-sepolia.blockscout.com/address/0xbB07E2C8C163063C602A2D00ddc97d5FacE76880)
 [![forge](https://img.shields.io/badge/forge-72%20passed-4EF0B0?style=flat-square&labelColor=0B0D1F)](test/README.md)
-[![CI](https://img.shields.io/github/actions/workflow/status/minrawsjar/Leash/test.yml?branch=main&style=flat-square&label=CI&labelColor=0B0D1F)](.github/workflows/test.yml)
 [![UHI11](https://img.shields.io/badge/UHI11-Hookathon-8B7BFF?style=flat-square&labelColor=0B0D1F)](#what-leash-is-live-today)
 
 **Leash is a Uniswap v4 hook that lets a token treasury hire a market maker without handing over its inventory.** The treasury deposits into the hook and posts a *mandate*, the rules a market maker must follow:
@@ -104,7 +103,6 @@ Built for the UHI11 Hookathon (deadline 3 December 2026). Everything below is do
 | Landing page: animated mandate hero, five-scene scroll story (React + TypeScript) | [leash-khaki.vercel.app](https://leash-khaki.vercel.app), [`frontend/src/site/`](frontend/src/site/README.md) |
 | App at `/app` (viem): mandates, live dashboard, create with a rules backtester, bid, manager console, keeper panel, a `#/managers` leaderboard, settle and claim; writes checked by `frontend/src/app/verify.ts` on anvil | [leash-khaki.vercel.app/app](https://leash-khaki.vercel.app/app), [`frontend/src/app/`](frontend/src/app/README.md) |
 | AI mandate drafter: plain words in, a filled form out; it signs nothing | [`frontend/api/`](frontend/api/README.md) |
-| CI: `forge build --sizes`, tests, gas snapshot, coverage; frontend typecheck and build | [`.github/workflows/test.yml`](.github/workflows/test.yml) |
 
 ## The life of a mandate
 

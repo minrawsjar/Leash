@@ -154,7 +154,7 @@ Hookathon deadline is 3 December 2026.
 | Invariant fuzzing: ledger always matches balances; managers gain only their pay | ✅ |
 | Deploy script, local dev chain, keeper | ✅ |
 | Landing page: animated mandate hero, five-scene scroll story (React + TypeScript) | ✅ |
-| Independent security audit: 2 critical, 1 high, 2 medium, 1 low found and fixed; each attack kept as a regression test | ✅ |
+| Security review (internal, not a third-party audit): 2 critical, 1 high, 2 medium, 1 low found and fixed; each attack kept as a regression test | ✅ |
 | Re-audit of the fixes: 1 high, 2 medium, 2 low found; fixed or bounded and documented below, each kept as a test | ✅ |
 | Unichain Sepolia deployment (source verified) | ✅ |
 | App at `/app` (viem): mandates, live dashboard, create, bid, manager console, settle and claim; writes checked by `frontend/src/app/verify.ts` on anvil | ✅ |

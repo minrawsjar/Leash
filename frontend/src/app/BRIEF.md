@@ -4,8 +4,12 @@ The app at `/app`: every Leash mandate, live, and every write a treasury, manage
 
 ## Screens (hash routes)
 - `#/` mandates index: MandateCreated logs → snapshot per mandate (status, pair, bond, epoch, 3 compliance dots).
-- `#/m/<poolId>` dashboard: stats (spot from sqrtPriceX96), live chart, compliance + glide bar, ledger, epochs,
-  activity, terms.
+- `#/` takes `?who=<address>` (`#/?who=0x…`): opens filtered to mandates that address treasures or manages.
+- `#/managers` leaderboard: every bidder, from Bid/EpochSettled logs + `records`. Won, clean, breached, clean rate,
+  pay per token, slashed, active now; sort by clean rate or pay (valued at each pool's current TWAP).
+- `#/m/<poolId>` dashboard: stats (spot from sqrtPriceX96), live chart, compliance + glide bar, ledger, keeper
+  (last checkpoint age, finished-unsettled epochs, Checkpoint now / Settle next; violet warning after 5 min without
+  a checkpoint on an active mandate), epochs, activity, terms.
 - `#/m/<id>/auction`: open → bid form ("Leader + 1" preset); closed → result card. Bid history; claimable balances
   listed separately and labelled per account across all mandates (owed is not per mandate).
 - `#/m/<id>/manage`: range picker around the TWAP, size as % of the current position (Floor / Keep / +5% pin exact
@@ -13,6 +17,10 @@ The app at `/app`: every Leash mandate, live, and every write a treasury, manage
 - `#/m/<id>/settle`: checkpoint, settle next epoch, close (treasury), claim, track records.
 - `#/create`: a term sheet. Assistant panel on top, five numbered sections (01 Inventory, 02 Auction and bond,
   03 Rules the manager must follow, 04 Pay and pace, 05 Opening position), a sticky receipt with the exact call.
+  Under the sheet, the backtester (backtest.ts, pure; `node src/app/backtest.test.ts`): seeded presets or pasted
+  prices through a simulated TWAP, an honest manager inside the rebalance guards, and the checkpoint's both-ends
+  booking. Shows the path, per-epoch dots, uptime, refusals, and breach risk over 6 seeds per preset. It says it
+  is an approximation; if Leash.sol's rules change, backtest.ts changes.
 
 ## Post a mandate: rules
 - It is a term sheet, not a card stack. Sections are separated by one hairline, headed by a mono uppercase label

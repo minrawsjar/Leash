@@ -1,5 +1,5 @@
 // The explorer home: search, network stats, latest mandates and activity, then every mandate with filters.
-import { useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { zeroAddress } from 'viem';
 import {
   ago, blockTime, chainNow, describe, dur, endOf, fmt, fmtNum, leashLogs, mandatesFrom, short, snapshot, stableOf,
@@ -28,7 +28,10 @@ export function Index({ refresh }: { refresh: number }) {
   }, net.logsApi ? 20_000 : 5_000, [net.id, refresh]);
 
   const [filter, setFilter] = useState<Filter>('all');
-  const [who, setWho] = useState('');
+  // #/?who=<address> (the managers page links here): open filtered by that address
+  const [who, setWho] = useState(() => new URLSearchParams(location.hash.split('?')[1] ?? '').get('who')?.toLowerCase() ?? '');
+  const jumped = useRef(!who);
+  useEffect(() => { if (data && !jumped.current) { jumped.current = true; requestAnimationFrame(() => document.getElementById('all')?.scrollIntoView()); } }, [data]);
   const [q, setQ] = useState('');
   const [miss, setMiss] = useState('');
 
@@ -89,7 +92,7 @@ export function Index({ refresh }: { refresh: number }) {
             <div className="stat"><span className="eyebrow">Mandates</span><strong>{snaps.length} <small>posted</small></strong></div>
             <div className="stat mint"><span className="eyebrow">Live now</span><strong>{live} <small>auction or active</small></strong></div>
             <div className="stat violet"><span className="eyebrow">Bonds at stake</span><strong>{bonds.size ? [...bonds].map(([k, v]) => `${fmtNum(v)} ${k}`).join(' + ') : '0'}</strong></div>
-            <div className="stat"><span className="eyebrow">Managers</span><strong>{managers} <small>hired</small></strong></div>
+            <a className="stat" href="#/managers"><span className="eyebrow">Managers</span><strong>{managers} <small>hired · leaderboard →</small></strong></a>
             <div className="stat"><span className="eyebrow">Hook events</span><strong>{data.logs.length}</strong></div>
             <div className="stat"><span className="eyebrow">Latest block</span><strong className="mono">{head ? String(head.block) : '–'}</strong></div>
           </div>

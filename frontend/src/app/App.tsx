@@ -1,4 +1,4 @@
-// The Leash dApp at /app. Hash routes: #/ mandates, #/create, #/m/<poolId>[/<tab>].
+// The Leash dApp at /app. Hash routes: #/ mandates (#/?who=<address> filters), #/managers, #/create, #/m/<poolId>[/<tab>].
 import { Mark } from '../Mark';
 import { useEffect, useState } from 'react';
 import type { Hex } from 'viem';
@@ -8,6 +8,7 @@ import { AppCtx } from './ui.tsx';
 import { Index } from './Index.tsx';
 import { MandatePage } from './Mandate.tsx';
 import { Create } from './Create.tsx';
+import { Managers } from './Managers.tsx';
 import './app.css';
 
 function pickNet(): Net {
@@ -45,7 +46,8 @@ export function App() {
           <div className="lx-bar">
             <a href="../" className="lx-mark" aria-label="Leash home"><Mark size={30} /><span>leash</span></a>
             <nav className="lx-nav" aria-label="App">
-              <a href="#/" aria-current={route.length === 0 || route[0] === 'm' ? 'page' : undefined}>Mandates</a>
+              <a href="#/" aria-current={route.length === 0 || route[0] === 'm' || route[0].startsWith('?') ? 'page' : undefined}>Mandates</a>
+              <a href="#/managers" aria-current={route[0] === 'managers' ? 'page' : undefined}>Managers</a>
               <a href="#/create" aria-current={route[0] === 'create' ? 'page' : undefined}>Post a mandate</a>
               <a href="../">About</a>
             </nav>
@@ -66,6 +68,7 @@ export function App() {
         {connErr && <p className="banner" role="alert">{connErr}</p>}
         <main className="lx-main" key={net.id}>
           {route[0] === 'create' ? <Create />
+            : route[0] === 'managers' ? <Managers refresh={tick} />
             : route[0] === 'm' && route[1] ? <MandatePage id={route[1] as Hex} tab={route[2] ?? 'dashboard'} refresh={tick} />
             : <Index refresh={tick} />}
         </main>

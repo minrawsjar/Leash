@@ -32,7 +32,7 @@ export function AttackChart() {
       <path d={band} className="band" />
       <path d={path(spot)} className="spot" />
       <path d={path(twap)} className="twap" />
-      <text x={x(N - 1)} y={y(twap[N - 1] * (1 + BAND)) - 8} textAnchor="end" className="red">TWAP ± 1%</text>
+      <text x={x(N - 1)} y={y(twap[N - 1] * (1 + BAND)) - 8} textAnchor="end" className="tw">TWAP ± 1%</text>
       <text x={x(N - 1)} y={y(spot[N - 1]) + 22} textAnchor="end">spot</text>
       <path d={`M${px - 7},${py - 7}L${px + 7},${py + 7}M${px + 7},${py - 7}L${px - 7},${py + 7}`} className="mark" />
       <text x={px - 14} y={py + 4} textAnchor="end" className="red">rebalance() refused: price pushed 14% for one block</text>

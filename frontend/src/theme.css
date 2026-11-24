@@ -1,0 +1,27 @@
+/* Leash design tokens. Opaque's structure (dark ground, one bright mark, huge uppercase display type
+   against small quiet text) in Leash's own colours: deep indigo ground, mint mark. Never black/orange. */
+:root {
+  --ink: #0b0d1f; /* ground: deep indigo, not black */
+  --surface: #11142b;
+  --raised: #181c3a;
+  --lift: #222749;
+  --cream: #eef0ff; /* text */
+  --muted: #a3a8c9;
+  --faint: #6c7199;
+  --line: rgba(238, 240, 255, 0.12);
+  --mint: #4ef0b0; /* the one bright mark */
+  --soft: #9ff7d3;
+  --violet: #8b7bff; /* secondary, sparingly: manager / bond */
+  --rose: #ff5d8f; /* breach / slash only */
+  --display: "Poppins", system-ui, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, monospace;
+  --gutter: clamp(20px, 5.5vw, 88px);
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --nav-h: 88px;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html { background: var(--ink); scroll-behavior: smooth; }
+body { margin: 0; background: var(--ink); color: var(--cream); font: 400 17px/1.6 var(--display); -webkit-font-smoothing: antialiased; }
+a { color: inherit; }
+:focus-visible { outline: 2px solid var(--soft); outline-offset: 3px; border-radius: 6px; }

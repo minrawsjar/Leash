@@ -28,9 +28,11 @@ contract Handler is Test {
     PoolKey key;
     PoolId immutable id;
     address[2] public bidders = [makeAddr("alice"), makeAddr("bob")];
-    /// Ghosts: pay earned by the settlement rules, and bonds lost to breaches.
+    address public keeper = makeAddr("keeper"); // settles sometimes; never claims, so its owed is all it earned
+    /// Ghosts: pay earned by the settlement rules, bonds lost to slashes, and keeper bounties.
     mapping(address => uint256[2]) public pay;
     mapping(address => uint256) public slashed;
+    uint256[2] public bounty;
 
     constructor(Leash _leash, PoolSwapTest _router, PoolKey memory _key) {
         (leash, router, key, id) = (_leash, _router, _key, _key.toId());
@@ -52,7 +54,7 @@ contract Handler is Test {
             auctionEnd: uint40(block.timestamp + 1 hours),
             epochLength: 6 hours,
             epochs: 4,
-            minBond: 10e18,
+            minBond: 40e18, // MIN_BOND_BPS: 2% of the 2,000-token deposit
             twapWindow: 600,
             maxTickDeviation: 200,
             minLiquidity: 100e18,
@@ -69,7 +71,7 @@ contract Handler is Test {
 
     function bid(uint256 who, uint256 amount) external {
         vm.prank(bidders[who % 2]);
-        try leash.bid(key, bound(amount, 10e18, 1_000e18)) {} catch {}
+        try leash.bid(key, bound(amount, 40e18, 1_000e18)) {} catch {}
     }
 
     /// A range around the TWAP (sometimes shifted off it), any size.
@@ -95,10 +97,13 @@ contract Handler is Test {
         try router.swap(key, p, PoolSwapTest.TestSettings(false, false), "") {} catch {}
     }
 
-    function settle() external {
+    /// Settled by the treasury (this handler), or by a keeper who earns the bounty.
+    function settle(bool byKeeper) external {
         Mandate memory m = leash.mandate(id);
+        uint256 treasuryOwed = leash.owed(address(this), key.currency1);
+        if (byKeeper) vm.prank(keeper);
         try leash.settle(key, m.settled) {
-            _book(m);
+            _book(m, treasuryOwed, byKeeper);
         } catch {}
     }
 
@@ -108,8 +113,9 @@ contract Handler is Test {
 
     function close() external {
         Mandate memory m = leash.mandate(id);
+        uint256 treasuryOwed = leash.owed(address(this), key.currency1);
         try leash.close(key) {
-            _book(m);
+            _book(m, treasuryOwed, false);
         } catch {}
     }
 
@@ -123,17 +129,19 @@ contract Handler is Test {
         vm.roll(block.number + 1);
     }
 
-    /// Mirrors the settlement rules over the epochs settled by the last call.
-    function _book(Mandate memory before) internal {
+    /// Mirrors the settlement rules over the epochs settled by the last call. Slashes are what the treasury was
+    /// credited in the stablecoin: settle and close credit it nothing else (close pushes the inventory directly).
+    function _book(Mandate memory before, uint256 treasuryOwed, bool byKeeper) internal {
         for (uint256 e = before.settled; e < leash.mandate(id).settled; e++) {
             EpochRecord memory r = leash.epochRecord(id, e);
-            if (r.clean) {
-                pay[before.manager][0] += uint256(r.fees0) * FEE_BPS / 10_000;
-                pay[before.manager][1] += uint256(r.fees1) * FEE_BPS / 10_000;
-            } else {
-                slashed[before.manager] += before.bond;
+            uint256[2] memory fees = [uint256(r.fees0), uint256(r.fees1)];
+            for (uint256 c; c < 2; c++) {
+                uint256 p = r.clean ? fees[c] * FEE_BPS / 10_000 : 0;
+                pay[before.manager][c] += p;
+                if (byKeeper) bounty[c] += (fees[c] - p) * 10 / 10_000; // KEEPER_BPS of the treasury's share
             }
         }
+        slashed[before.manager] += leash.owed(address(this), key.currency1) - treasuryOwed;
     }
 
     function _manager() internal view returns (address) {
@@ -178,15 +186,16 @@ contract LeashInvariantTest is Test, Deployers {
         return MockERC20(Currency.unwrap(c)).balanceOf(who);
     }
 
-    /// The hook's real balances are exactly: inventory + unsettled fees + bond + everything it owes.
+    /// The hook's real balances are exactly: inventory + unsettled fees + bond + everything it owes (treasury,
+    /// bidders and keeper).
     /// forge-config: default.invariant.runs = 128
     /// forge-config: default.invariant.depth = 100
     function invariant_hookHoldsExactlyItsLedger() public view {
         Mandate memory m = leash.mandate(key.toId());
-        address[3] memory who = [address(handler), handler.bidders(0), handler.bidders(1)];
+        address[4] memory who = [address(handler), handler.bidders(0), handler.bidders(1), handler.keeper()];
         uint256 owed0;
         uint256 owed1;
-        for (uint256 i; i < 3; i++) {
+        for (uint256 i; i < 4; i++) {
             owed0 += leash.owed(who[i], currency0);
             owed1 += leash.owed(who[i], currency1);
         }
@@ -212,5 +221,49 @@ contract LeashInvariantTest is Test, Deployers {
                 start + pay1
             );
         }
+    }
+
+    /// Bond and balance conservation, per currency c:
+    ///  1. No token is created or leaks: c.totalSupply == balances of {treasury, alice, bob, keeper, hook, PoolManager, this}.
+    ///  2. The hook covers every claim on it: once treasury, alice, bob and keeper each claim all they are owed (none
+    ///     reverts), the hook still holds exactly idle_c + fees_c (+ the posted bond, in the stablecoin), and nothing
+    ///     is left owed. Closed, that is 0.
+    ///  3. The keeper's owed is exactly KEEPER_BPS of the treasury's share of the fees of the epochs it settled: the
+    ///     bounty never comes out of the manager's pay or the bond.
+    /// forge-config: default.invariant.runs = 128
+    /// forge-config: default.invariant.depth = 100
+    function invariant_bondsAndBalancesConserved() public {
+        Mandate memory m = leash.mandate(key.toId());
+        address[7] memory holders = [
+            address(handler),
+            handler.bidders(0),
+            handler.bidders(1),
+            handler.keeper(),
+            address(leash),
+            address(manager),
+            address(this) // Deployers' mint, untouched after setUp
+        ];
+        Currency[2] memory cs = [currency0, currency1];
+        for (uint256 c; c < 2; c++) {
+            uint256 held;
+            for (uint256 i; i < 7; i++) {
+                held += _bal(cs[c], holders[i]);
+            }
+            assertEq(MockERC20(Currency.unwrap(cs[c])).totalSupply(), held, "supply conserved");
+        }
+        assertEq(leash.owed(handler.keeper(), currency0), handler.bounty(0), "keeper bounty (0)");
+        assertEq(leash.owed(handler.keeper(), currency1), handler.bounty(1), "keeper bounty (1)");
+
+        uint256 snap = vm.snapshotState();
+        for (uint256 i; i < 4; i++) {
+            for (uint256 c; c < 2; c++) {
+                vm.prank(holders[i]);
+                leash.claim(cs[c]);
+                assertEq(leash.owed(holders[i], cs[c]), 0);
+            }
+        }
+        assertEq(_bal(currency0, address(leash)), m.idle0 + m.fees0, "covers every claim (0)");
+        assertEq(_bal(currency1, address(leash)), m.idle1 + m.fees1 + m.bond, "covers every claim (1)");
+        vm.revertToState(snap);
     }
 }

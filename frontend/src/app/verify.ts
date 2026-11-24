@@ -33,15 +33,15 @@ const U = 1_000_000n;
 
 // ---- auction: outbid, refund, claim
 ok(s.m.manager === m2.account, 'seeded leader is manager #2');
-await refuses(act.bid(m1, key, usdc, 1_500n * U), /too low/, 'bid at the leader\'s bond');
-await act.bid(m1, key, usdc, 2_000n * U);
+await refuses(act.bid(m1, key, usdc, 12_000n * U), /too low/, 'bid at the leader\'s bond');
+await act.bid(m1, key, usdc, 15_000n * U);
 s = await snapshot(net, seed.id, key);
-ok(s.m.manager === m1.account && s.m.bond === 2_000n * U, 'bid 2,000: manager #1 leads');
-ok((await owed(net, m2.account, usdc)) === 1_500n * U, 'outbid #2 has 1,500 claimable');
+ok(s.m.manager === m1.account && s.m.bond === 15_000n * U, 'bid 15,000: manager #1 leads');
+ok((await owed(net, m2.account, usdc)) === 12_000n * U, 'outbid #2 has 12,000 claimable');
 const before = await pub.readContract({ address: usdc, abi: erc20Abi, functionName: 'balanceOf', args: [m2.account] });
 await act.claim(m2, usdc);
 const after = await pub.readContract({ address: usdc, abi: erc20Abi, functionName: 'balanceOf', args: [m2.account] });
-ok(after - before === 1_500n * U && (await owed(net, m2.account, usdc)) === 0n, 'claim pays #2 its 1,500 refund');
+ok(after - before === 12_000n * U && (await owed(net, m2.account, usdc)) === 0n, 'claim pays #2 its 12,000 refund');
 
 // ---- create: the form's plan, a thin anchor refused, then a real mandate on a new pool (spacing 10)
 const now = Number((await pub.getBlock()).timestamp);
@@ -98,7 +98,7 @@ await act.close(treasury, key);
 s = await snapshot(net, seed.id, key);
 ok(s.m.closed && s.m.idle0 === 0n && s.m.idle1 === 0n, 'close: mandate closed, ledger emptied to the treasury');
 const mOwed = await owed(net, m1.account, usdc);
-ok(mOwed >= 2_000n * U, `manager #1 owed ${mOwed} (bond back plus pay)`);
+ok(mOwed >= 15_000n * U, `manager #1 owed ${mOwed} (bond back plus pay)`);
 await act.claim(m1, usdc);
 ok((await owed(net, m1.account, usdc)) === 0n, 'manager #1 claims');
 await refuses(act.checkpoint(keeper, key), /closed/, 'checkpoint after close (MandateClosed)');

@@ -91,7 +91,7 @@ contract Settle is Script {
             EpochRecord memory r = leash.epochRecord(id, e);
             console2.log(
                 string.concat(
-                    "Settled epoch ", vm.toString(e), r.clean ? ": clean" : ": BREACH, bond slashed",
+                    "Settled epoch ", vm.toString(e), r.clean ? ": clean" : ": missed uptime, bond slashed",
                     " (in ", vm.toString(r.inSecs), "s, out ", vm.toString(r.outSecs), "s, fees ",
                     vm.toString(r.fees0), " / ", vm.toString(r.fees1), ")"
                 )
@@ -99,7 +99,7 @@ contract Settle is Script {
             m = leash.mandate(id);
             n++;
         }
-        if (m.breached) console2.log("Mandate breached: nothing more to settle");
+        if (m.breached) console2.log("Manager fired: nothing more to settle");
         else if (n == 0) console2.log("Nothing to settle; epochs settled so far:", m.settled);
     }
 }

@@ -12,8 +12,8 @@ import { Backtest } from './Backtest.tsx';
 // What each field is, a typical value, and what goes wrong at either end. True to Leash.sol.
 const INFO: Record<Field | 's1' | 's2' | 's3' | 's4' | 's5', string> = {
   s1: 'What you deposit. Leash holds it in the hook and the pool for the whole mandate; only you can take it out, by closing.',
-  s2: 'Managers bid a first-loss bond in the stablecoin until the auction ends, and the highest bid is hired. If an epoch is breached, the whole bond is paid to you.',
-  s3: 'The hook checks these on every rebalance and every checkpoint. A manager out of compliance for more than the allowed share of an epoch is slashed and fired.',
+  s2: 'Managers bid a first-loss bond in the stablecoin until the auction ends, and the highest bid is hired. If an epoch misses its uptime, part of the bond is paid to you, in proportion to the time out beyond the allowance; twice the allowance pays all of it and fires the manager.',
+  s3: 'The hook checks these on every rebalance and every checkpoint. A manager out of compliance for more than the allowed share of an epoch loses part of the bond; twice the allowance loses all of it and is fired.',
   s4: 'How long the mandate runs, what a clean manager earns, and how fast the inventory may turn into stablecoin.',
   s5: 'The pool is never empty. Your opening position straddles the price, and a permanent full-range anchor puts liquidity at every price so pushing the TWAP costs real capital.',
   token: 'The ERC-20 your treasury holds and wants managed. It must be a deployed contract on this network; Leash pairs it with the stablecoin in a new Uniswap v4 pool.',
@@ -23,7 +23,7 @@ const INFO: Record<Field | 's1' | 's2' | 's3' | 's4' | 's5', string> = {
   price: 'Where the new pool starts, in stablecoin per token. Set it at the market price: an off-market price is arbitraged away at your expense on the first trade.',
   tickSpacing: 'The grid that ranges snap to; 60 is usual. Each pool holds one mandate, so a different spacing makes a different pool for the same pair.',
   auctionHours: 'How long managers can bid. It must outlast the TWAP window plus a minute, so the oracle holds a full window before anyone acts. A day is typical for a real mandate.',
-  minBond: 'The smallest bond a manager may bid. It is first-loss: a breached epoch pays all of it to you. Too low invites careless managers; too high and nobody bids.',
+  minBond: 'The smallest bond a manager may bid. It is first-loss: an epoch that misses its uptime pays part or all of it to you. It must be at least 2% of the deposit’s value. Too low invites careless managers; too high and nobody bids.',
   twapMins: 'The averaging window the hook uses as fair price. Longer is harder to manipulate but slower to follow real moves; 30 minutes is typical. The auction must last at least this long.',
   maxTickDeviation: 'A rebalance is refused while spot is further than this from the TWAP (100 ticks is about 1%), so nobody re-ranges into a pushed price. It must be smaller than the minimum half-width.',
   minHalfWidth: 'The managed range must always cover the TWAP plus or minus this many ticks. Wider is safer but earns less per unit of liquidity. It must exceed the max spot–TWAP gap, so a pushed spot never reaches the edge.',

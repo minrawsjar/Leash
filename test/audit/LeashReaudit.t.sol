@@ -301,6 +301,15 @@ contract LeashReauditTest is Test, Deployers {
         // push spot past its range, re-range into the push path and sell back into the treasury. Managers of
         // volatile tokens keep wide ranges; treasuries size maxTickDeviation and uptimeBps for the token.
         assertFalse(e.clean, "documented: repeated 30% swings breach a +-600 range");
+        // With partial slashing the honest manager loses only the share of the bond its time over the 72-minute
+        // allowance is of that allowance (5880s out: 1560s over 4320s, 36%), keeps the rest and its job.
+        uint256 allowed = uint256(e.inSecs + e.outSecs) * 500 / 10_000;
+        uint256 slashed = 10e18 * (uint256(e.outSecs) - allowed) / allowed;
+        emit log_named_decimal_uint("bond slashed (of 10)", slashed, 18);
+        assertFalse(_m().breached, "not fired");
+        assertApproxEqAbs(_m().bond, 10e18 - slashed, 1e3, "loses only part of the bond");
+        assertLt(slashed, 10e18 / 2);
+        assertEq(leash.owed(address(this), currency1), 10e18 - _m().bond, "the slash went to the treasury");
     }
 
     // ================================================================ R-3: anyone can veto a rebalance

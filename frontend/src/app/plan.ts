@@ -1,8 +1,8 @@
 // Turns the create-mandate form into createMandate's arguments, and lists every check createMandate makes
-// (BadTerms, ThinAnchor, NotLeashPool, ranges) in plain words before anything is signed. Pure: verify.ts uses it too.
+// (BadTerms, ThinAnchor, ThinBond, NotLeashPool, ranges) in plain words before anything is signed. Pure: verify.ts uses it too.
 import { parseUnits, type Address } from 'viem';
 import {
-  DYNAMIC_FEE, MAX_EPOCHS, MAX_LP_FEE, MIN_ANCHOR_BPS, liquidityFor, maxTick, minTick, poolId, tickOfRaw,
+  DYNAMIC_FEE, MAX_EPOCHS, MAX_LP_FEE, MIN_ANCHOR_BPS, MIN_BOND_BPS, fmtNum, liquidityFor, maxTick, minTick, poolId, tickOfRaw,
   type Key, type Terms, type Token,
 } from './chain.ts';
 import type { Position } from './actions.ts';
@@ -21,7 +21,7 @@ export type Field = keyof Form;
 export const PRESETS: Record<string, { label: string; note: string; f: Partial<Form> }> = {
   demo: {
     label: 'Demo · 3 × 1 hour', note: 'The local chain\'s seeded mandate: short epochs, a 2-minute TWAP, a 15-minute auction.',
-    f: { maxFeePct: '1', minFeePct: '0.05', auctionHours: 0.25, epochHours: 1, epochs: 3, minBond: '1000', twapMins: 2, maxTickDeviation: 100, minHalfWidth: 200, floorPct: 50, uptimePct: 95, managerFeePct: 30, startStablePct: 60, endStablePct: 80 },
+    f: { maxFeePct: '1', minFeePct: '0.05', auctionHours: 0.25, epochHours: 1, epochs: 3, minBond: '10000', twapMins: 2, maxTickDeviation: 100, minHalfWidth: 200, floorPct: 50, uptimePct: 95, managerFeePct: 30, startStablePct: 60, endStablePct: 80 },
   },
   quarter: {
     label: 'Quarter · 12 × 1 week', note: 'A real treasury mandate: weekly epochs, a 30-minute TWAP, a one-day auction.',
@@ -116,6 +116,13 @@ export function plan(f: Form, hook: Address, tok: Token | null, stb: Token | nul
   if (terms.anchorLiquidity <= 0n) bad('anchorPct', 'The anchor works out to zero liquidity.');
   // ThinAnchor and the opening position's own checks (_place, with TWAP = spot = the opening tick)
   if (anchorBps < MIN_ANCHOR_BPS) bad('anchorPct', `The anchor holds ${(anchorBps / 100).toFixed(1)}% of the deposit's value; it must hold at least ${MIN_ANCHOR_BPS / 100}% (ThinAnchor).`);
+  // ThinBond: minBond, valued in currency1 like the deposit, at least MIN_BOND_BPS of the deposit (a hair over, as
+  // the contract rounds the opening price down)
+  const bondValue = Number(minBond) * (stableIs0 ? raw : 1);
+  if (bondValue * 10_000 < depositValue * MIN_BOND_BPS * 1.0001) {
+    const need = (depositValue * MIN_BOND_BPS * 1.0001) / 10_000 / (stableIs0 ? raw : 1) / 10 ** stb.decimals;
+    bad('minBond', `The minimum bond must be at least ${MIN_BOND_BPS / 100}% of the deposit's value: ${fmtNum(Math.ceil(need))} ${stb.symbol} or more (ThinBond).`);
+  }
   if (f.positionPct + f.anchorPct > 100) bad(['positionPct', 'anchorPct'], 'The opening position and the anchor together can use at most 100% of the deposit.', { anchorPct: `With ${f.positionPct}% in the position, at most ${100 - f.positionPct}% is left.` });
   if (BigInt(L) < terms.minLiquidity || L <= 0) bad(['positionPct', 'floorPct'], 'The opening position is below the depth floor.', { floorPct: 'Above the opening position itself; keep it at or under 100%.' });
   if (lo > openTick - terms.minHalfWidth || hi < openTick + terms.minHalfWidth) bad('rangePct', `The opening range (±${w} ticks) must cover the opening price ± the minimum half-width (${terms.minHalfWidth} ticks): widen it to at least ±${((Math.pow(1.0001, terms.minHalfWidth + ts) - 1) * 100).toFixed(1)}%.`);

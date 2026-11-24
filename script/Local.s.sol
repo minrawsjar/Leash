@@ -34,8 +34,8 @@ contract Local is DeployLeash {
 
     uint256 public constant TKN_DEPOSIT = 100_000e18;
     uint256 public constant USDC_DEPOSIT = 200_000e6; // the deposit ratio sets the opening price: 1 TKN = 2 mUSDC
-    uint256 public constant BID1 = 1_000e6;
-    uint256 public constant BID2 = 1_500e6;
+    uint256 public constant BID1 = 10_000e6; // the minimum bond: 2.5% of the 400,000 mUSDC deposit (MIN_BOND_BPS is 2%)
+    uint256 public constant BID2 = 12_000e6;
 
     PoolManager public manager;
     PoolSwapTest public swapRouter;

@@ -11,7 +11,7 @@ This folder holds every address Leash uses on Unichain Sepolia (chain 1301) and 
 | [`1301.json`](1301.json) | `script/DeployLeash.s.sol` | `frontend/src/app/chain.ts`, `script/Settle.s.sol` | Unichain Sepolia: `chainId`, `block`, `poolManager`, `leash` |
 | [`1301-tokens.json`](1301-tokens.json) | `script/Tokens.s.sol:Tokens` | `script/Tokens.s.sol:Faucet` | Testnet TKN and mUSDC addresses |
 | [`31337.json`](31337.json) | `script/Local.s.sol` (via `scripts/local.sh`) | `frontend/src/app/chain.ts`, `frontend/src/app/verify.ts`, `script/Settle.s.sol` | Local anvil: core addresses, tokens, swap router, the seeded pool key, the accounts |
-| [`abi/Leash.json`](abi/Leash.json) | `scripts/local.sh` (`jq .abi out/Leash.sol/Leash.json`) | `frontend/src/app/chain.ts` | Leash's ABI: a JSON array of 58 entries (constructor, functions, events, errors) |
+| [`abi/Leash.json`](abi/Leash.json) | `scripts/local.sh` (`jq .abi out/Leash.sol/Leash.json`) | `frontend/src/app/chain.ts` | Leash's ABI: a JSON array of 59 entries (constructor, functions, events, errors) |
 
 ## Folder Structure
 

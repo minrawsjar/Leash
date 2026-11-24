@@ -16,6 +16,8 @@ import {PoolKey} from "v4-core/types/PoolKey.sol";
 import {PoolIdLibrary} from "v4-core/types/PoolId.sol";
 import {Currency} from "v4-core/types/Currency.sol";
 import {SwapParams} from "v4-core/types/PoolOperation.sol";
+import {IPoolManager} from "v4-core/interfaces/IPoolManager.sol";
+import {Vm} from "forge-std/Vm.sol";
 import {PoolSwapTest} from "v4-core/test/PoolSwapTest.sol";
 import {Leash, Terms, Position, Mandate, EpochRecord} from "../src/Leash.sol";
 
@@ -598,18 +600,20 @@ contract LeashTest is Test, Deployers {
         leash.settle(key, 1);
     }
 
-    /// Out of range for the last 2h of the epoch (8% > 5% allowed): the bond goes to the treasury.
+    /// Out of range for the last 3h of the epoch (12.5%, at least twice the 5% allowed): the whole bond goes to the
+    /// treasury and the manager is fired. Was 2h before partial slashing; 2h out now takes 2/3 of the bond and
+    /// keeps the manager (test_partialSlash_*), so this needs 3h to test the firing path.
     function test_settle_breachSlashesBondAndFiresManager() public {
         _win();
-        vm.warp(auctionEnd + 22 hours);
+        vm.warp(auctionEnd + 21 hours);
         _swapTo(false, 100e18, 900);
         vm.warp(auctionEnd + 1 days);
         leash.settle(key, 0);
 
         EpochRecord memory e = leash.epochRecord(key.toId(), 0);
         assertFalse(e.clean);
-        assertEq(e.inSecs, 22 hours);
-        assertEq(e.outSecs, 2 hours);
+        assertEq(e.inSecs, 21 hours);
+        assertEq(e.outSecs, 3 hours);
         Mandate memory m = _m();
         assertTrue(m.breached);
         assertEq(m.bond, 0);
@@ -747,6 +751,181 @@ contract LeashTest is Test, Deployers {
         assertEq(leash.epochRecord(key.toId(), 0).inSecs, 1 hours);
         assertEq(leash.epochRecord(key.toId(), 103).inSecs, 1 hours);
         _swapBothWays();
+    }
+
+    // ---------------------------------------------------------------- dynamic fee
+
+    /// The fee the PoolManager charged a small swap, from its Swap event.
+    function _feeOfSwap(bool zeroForOne) internal returns (uint24 fee) {
+        vm.recordLogs();
+        _swapTo(zeroForOne, 1e12, zeroForOne ? TickMath.MIN_TICK + 1 : TickMath.MAX_TICK - 1);
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        for (uint256 i; i < logs.length; i++) {
+            if (logs[i].topics[0] == IPoolManager.Swap.selector) {
+                (,,,,, fee) = abi.decode(logs[i].data, (int128, int128, uint160, uint128, int24, uint24));
+            }
+        }
+    }
+
+    function test_dynamicFee_equalsSetFeeAtTwap() public {
+        _win();
+        vm.prank(alice);
+        leash.setFee(key, 500);
+        assertEq(leash.twapTick(key), _tick());
+        assertEq(_feeOfSwap(true), 500, "at the TWAP: the manager's fee");
+        (,,, uint24 lpFee) = manager.getSlot0(key.toId());
+        assertEq(lpFee, 500, "the override never changes the stored fee");
+    }
+
+    /// Spot pushed 100 and 200 ticks off a TWAP of 0 (same block, so the TWAP hasn't moved): +10 pips per tick
+    /// beyond the 10-tick free band.
+    function test_dynamicFee_risesWithDeviation() public {
+        _win();
+        vm.prank(alice);
+        leash.setFee(key, 500);
+        _swapTo(false, 1e30, 5);
+        assertEq(_feeOfSwap(true), 500, "inside the free band");
+        _swapTo(false, 1e30, 100);
+        assertEq(_feeOfSwap(true), 500 + 90 * 10);
+        _swapTo(false, 1e30, 200);
+        assertEq(_feeOfSwap(true), 500 + 190 * 10);
+        _swapTo(true, 1e30, -200); // either side
+        assertEq(_feeOfSwap(false), 500 + 190 * 10);
+        assertEq(leash.twapTick(key), 0);
+    }
+
+    function test_dynamicFee_neverExceedsMaxFee() public {
+        _win();
+        vm.prank(alice);
+        leash.setFee(key, 9_000);
+        _swapTo(false, 1e30, 2000);
+        assertEq(_feeOfSwap(true), 10_000, "capped at maxFee");
+        _swapTo(false, 1e30, 20_000);
+        assertEq(_feeOfSwap(true), 10_000);
+    }
+
+    // ---------------------------------------------------------------- partial slash
+
+    /// Out of range for the last 2h of epoch 0: 48 minutes over the 72 allowed, so 48/72 of the bond goes to the
+    /// treasury. The manager keeps the rest and its job; clean epochs after that return the remainder at the end.
+    function test_partialSlash_proportionalToTimeOverAllowance() public {
+        _win();
+        vm.warp(auctionEnd + 22 hours);
+        _swapTo(false, 100e18, 900);
+        vm.warp(auctionEnd + 1 days);
+        uint256 slashed = uint256(10e18) * 48 / 72;
+        vm.expectEmit(address(leash));
+        emit Leash.EpochSettled(key.toId(), 0, false, 0, 0, slashed);
+        leash.settle(key, 0);
+
+        Mandate memory m = _m();
+        assertFalse(m.breached, "not fired");
+        assertEq(m.bond, 10e18 - slashed);
+        assertEq(leash.owed(address(this), currency1), slashed, "slash to the treasury");
+        (uint32 clean, uint32 breached) = leash.records(alice);
+        assertEq(clean, 0);
+        assertEq(breached, 1);
+        _assertLedger();
+
+        vm.prank(alice);
+        leash.rebalance(key, 600, 1200, 1_000e18); // still the manager: repairs
+        vm.warp(auctionEnd + 3 days);
+        leash.close(key);
+        assertTrue(leash.epochRecord(key.toId(), 1).clean && leash.epochRecord(key.toId(), 2).clean);
+        uint256 pay1 =
+            (uint256(leash.epochRecord(key.toId(), 1).fees1) + leash.epochRecord(key.toId(), 2).fees1) * 3000 / 10_000;
+        assertEq(leash.owed(alice, currency1), 10e18 - slashed + pay1, "the rest of the bond back, plus pay");
+        _assertLedger();
+    }
+
+    /// Exactly twice the allowance (144 min) fires; one second less doesn't.
+    function test_partialSlash_firesAtTwiceTheAllowance() public {
+        uint256 snap = vm.snapshotState();
+        _win();
+        vm.warp(auctionEnd + 1 days - 144 minutes + 1);
+        _swapTo(false, 100e18, 900);
+        vm.warp(auctionEnd + 1 days);
+        leash.settle(key, 0);
+        assertFalse(_m().breached);
+        assertGt(_m().bond, 0);
+        vm.revertToState(snap);
+
+        _win();
+        vm.warp(auctionEnd + 1 days - 144 minutes);
+        _swapTo(false, 100e18, 900);
+        vm.warp(auctionEnd + 1 days);
+        leash.settle(key, 0);
+        assertTrue(_m().breached, "fired");
+        assertEq(_m().bond, 0);
+        assertEq(leash.owed(address(this), currency1), 10e18, "whole bond to the treasury");
+    }
+
+    // ---------------------------------------------------------------- keeper bounty
+
+    /// Bob settles epoch 0: he earns 10 bps of the treasury's 70% of the fees; alice's 30% is untouched. Settling
+    /// again reverts, so it can't be farmed.
+    function test_keeperBounty_paidFromTreasuryShareOnce() public {
+        _win();
+        swap(key, true, -10e18, ZERO_BYTES);
+        swap(key, false, -10e18, ZERO_BYTES);
+        vm.warp(auctionEnd + 1 days);
+        uint256 idle0 = _m().idle0;
+        vm.prank(bob);
+        leash.settle(key, 0);
+        EpochRecord memory e = leash.epochRecord(key.toId(), 0);
+        uint256 pay0 = uint256(e.fees0) * 3000 / 10_000;
+        uint256 tip0 = (e.fees0 - pay0) * 10 / 10_000;
+        assertGt(tip0, 0);
+        assertEq(leash.owed(alice, currency0), pay0, "manager's pay untouched");
+        assertEq(leash.owed(bob, currency0), tip0, "keeper: 10 bps of the treasury's share");
+        assertEq(leash.owed(bob, currency1), (e.fees1 - uint256(e.fees1) * 3000 / 10_000) * 10 / 10_000);
+        assertEq(_m().idle0, idle0 + e.fees0 - pay0 - tip0, "the treasury keeps the rest");
+        assertEq(_m().bond, 10e18, "never from the bond");
+        _assertLedger();
+
+        vm.prank(bob);
+        vm.expectRevert(Leash.BadEpoch.selector);
+        leash.settle(key, 0);
+    }
+
+    /// The treasury settling (or close settling for it) pays itself nothing; checkpoints pay nobody.
+    function test_keeperBounty_notForTreasuryOrCheckpoint() public {
+        _win();
+        swap(key, true, -10e18, ZERO_BYTES);
+        vm.prank(bob);
+        leash.checkpoint(key);
+        assertEq(leash.owed(bob, currency0), 0, "checkpoint pays nothing");
+        vm.warp(auctionEnd + 3 days);
+        leash.close(key);
+        assertEq(leash.owed(address(this), currency0), 0, "no bounty to the treasury");
+        _assertLedger();
+    }
+
+    // ---------------------------------------------------------------- minimum bond
+
+    /// minBond must be at least 2% of the deposit's value: 200 at 1:1 needs 4.
+    function test_minBond_atLeastTwoPercentOfDeposit() public {
+        key = PoolKey(currency0, currency1, LPFeeLibrary.DYNAMIC_FEE_FLAG, 10, IHooks(address(leash)));
+        Terms memory t = _terms();
+        t.minBond = 4e18 - 1;
+        vm.expectRevert(Leash.ThinBond.selector);
+        leash.createMandate(key, SQRT_PRICE_1_1, t, 100e18, 100e18, _initial());
+        t.minBond = 4e18;
+        leash.createMandate(key, SQRT_PRICE_1_1, t, 100e18, 100e18, _initial());
+    }
+
+    /// Stablecoin is currency0 at 4 currency1 each: the deposit (100 + 100) is worth 500 currency1, so the bond
+    /// floor is 10 currency1 = 2.5 of the stablecoin.
+    function test_minBond_valuedInTheStablecoin() public {
+        key = PoolKey(currency0, currency1, LPFeeLibrary.DYNAMIC_FEE_FLAG, 30, IHooks(address(leash)));
+        Terms memory t = _terms();
+        (t.stableIs0, t.anchorLiquidity, t.startStableBps) = (true, 30e18, 10_000);
+        Position memory p = Position(13_200, 14_400, 500e18);
+        t.minBond = 2.5e18 - 1;
+        vm.expectRevert(Leash.ThinBond.selector);
+        leash.createMandate(key, 2 * SQRT_PRICE_1_1, t, 100e18, 100e18, p);
+        t.minBond = 2.5e18;
+        leash.createMandate(key, 2 * SQRT_PRICE_1_1, t, 100e18, 100e18, p);
     }
 
     // ---------------------------------------------------------------- close

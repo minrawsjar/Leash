@@ -103,6 +103,7 @@ function Dashboard({ s, samples, records, logs }: { s: Snapshot; samples: Sample
   const price = (tick: number) => priceAt(tick, s.key, t, s.tok);
   const now = chainNow(s, useClock());
   const live = s.status === 'active' || s.status === 'auction';
+  const judge = (ok: boolean) => (s.m.closed ? null : ok); // closed: the position is gone, so its zeros are not failures
   const cap = glideAt(t, now);
   const ledger = inventory(s);
   const p = price(s.twap);
@@ -126,10 +127,10 @@ function Dashboard({ s, samples, records, logs }: { s: Snapshot; samples: Sample
       <section className="card">
         <div className="card-head"><h2>Compliance now</h2><span className="quiet">{live ? 'as the next checkpoint judges it' : 'mandate not live'}</span></div>
         <ul className="checks">
-          <Check ok={s.comp.inRange}>TWAP tick <b className="mono">{s.twap}</b> {s.comp.inRange ? 'inside' : 'outside'} range <b className="mono">[{s.m.tickLower}, {s.m.tickUpper})</b></Check>
-          <Check ok={s.comp.deep}>Liquidity {fmtNum(Number(s.m.liquidity) / Number(t.minLiquidity || 1n), 2)}× the depth floor</Check>
-          <Check ok={s.comp.onPace}>Stable share {pct(s.comp.stableBps)} vs glide cap {pct(cap)}</Check>
-          <Check ok={s.lpFee >= t.minFee && s.lpFee <= t.maxFee}>Fee {feePct(s.lpFee)} inside {feePct(t.minFee)}–{feePct(t.maxFee)}</Check>
+          <Check ok={judge(s.comp.inRange)}>TWAP tick <b className="mono">{s.twap}</b> {s.comp.inRange ? 'inside' : 'outside'} range <b className="mono">[{s.m.tickLower}, {s.m.tickUpper})</b></Check>
+          <Check ok={judge(s.comp.deep)}>Liquidity {fmtNum(Number(s.m.liquidity) / Number(t.minLiquidity || 1n), 2)}× the depth floor</Check>
+          <Check ok={judge(s.comp.onPace)}>Stable share {pct(s.comp.stableBps)} vs glide cap {pct(cap)}</Check>
+          <Check ok={judge(s.lpFee >= t.minFee && s.lpFee <= t.maxFee)}>Fee {feePct(s.lpFee)} inside {feePct(t.minFee)}–{feePct(t.maxFee)}</Check>
         </ul>
         <div className="glide" aria-hidden>
           <span className="glide-fill" style={{ width: `${s.comp.stableBps / 100}%` }} />
@@ -233,7 +234,7 @@ function Timeline({ s, records, now }: { s: Snapshot; records: EpochRecord[]; no
       {Array.from({ length: t.epochs }, (_, e) => {
         const r = records[e];
         const start = t.auctionEnd + e * t.epochLength, end = start + t.epochLength;
-        const state = r?.settled ? (r.clean ? 'clean' : 'breached') : s.status === 'closed' ? 'off' : now >= end ? 'due' : now >= start && s.status === 'active' ? 'now' : 'later';
+        const state = r?.settled ? (r.clean ? 'clean' : 'breached') : s.status === 'closed' || s.status === 'breached' ? 'off' : now >= end ? 'due' : now >= start && s.status === 'active' ? 'now' : 'later';
         const total = r ? r.inSecs + r.outSecs : 0;
         const up = total ? (r!.inSecs * 10_000) / total : 0;
         const f = r ? [t.stableIs0 ? r.fees1 : r.fees0, t.stableIs0 ? r.fees0 : r.fees1] : [0n, 0n];
@@ -246,7 +247,7 @@ function Timeline({ s, records, now }: { s: Snapshot; records: EpochRecord[]; no
               <i className="cut" style={{ left: `${t.uptimeBps / 100}%` }} />
             </span>
             <span className="ep-txt">
-              <b>{state === 'clean' ? 'Clean' : state === 'breached' ? 'Breached' : state === 'due' ? 'Ended · settle' : state === 'off' ? 'Not run · closed' : state === 'now' ? 'In progress' : 'Upcoming'}</b>
+              <b>{state === 'clean' ? 'Clean' : state === 'breached' ? 'Breached' : state === 'due' ? 'Ended · settle' : state === 'off' ? `Not run · ${s.status}` : state === 'now' ? 'In progress' : 'Upcoming'}</b>
               <small>{total ? `${dur(r!.inSecs)} in · ${dur(r!.outSecs)} out · ${pct(up, 1)} up` : new Date(start * 1000).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</small>
               {(f[0] > 0n || f[1] > 0n) && <small>fees {fmt(f[0], token.decimals, 4)} {token.symbol} · {fmt(f[1], stable.decimals, 4)} {stable.symbol}</small>}
             </span>
@@ -528,7 +529,7 @@ function Settle({ s, records }: { s: Snapshot; records: EpochRecord[] }) {
       <section className="card">
         <div className="card-head"><h2>Settle epoch {Math.min(next + 1, t.epochs)}</h2><span className="quiet">anyone · in order</span></div>
         {r && next < t.epochs && <p className="quiet">So far {dur(r.inSecs)} in, {dur(r.outSecs)} out: {r.inSecs + r.outSecs ? pct((r.inSecs * 10_000) / (r.inSecs + r.outSecs)) : '–'} uptime against {pct(t.uptimeBps, 0)} needed. Clean pays the manager {pct(t.managerFeeBps, 0)} of the epoch's fees; a miss slashes the bond in proportion to the time out beyond the allowance, and twice the allowance takes all of it and fires the manager. Whoever settles (other than the treasury) earns 0.1% of the treasury's share of the fees.</p>}
-        <Act label={`Settle epoch ${next + 1}`} disabled={!!settleWhy} why={settleWhy} run={async () => act.settle(await wallet.ctx(net), s.key, next)} />
+        <Act label={`Settle epoch ${Math.min(next + 1, t.epochs)}`} disabled={!!settleWhy} why={settleWhy} run={async () => act.settle(await wallet.ctx(net), s.key, next)} />
       </section>
 
       <section className="card" style={closeWhy && s.status !== 'unhired' && s.status !== 'ended' && !s.m.breached ? undefined : { order: -1 }}>

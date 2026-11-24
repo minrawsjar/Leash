@@ -44,8 +44,9 @@ export function TxLink({ hash }: { hash: Hex }) {
 
 /** A button that runs a write, then reports the tx or the revert in plain words, and refreshes the page data. */
 export function Act({ label, run, disabled, kind = 'primary', why }: { label: string; run: () => Promise<Hex | void>; disabled?: boolean; kind?: 'primary' | 'secondary' | 'violet' | 'rose'; why?: string }) {
-  const { bump } = useApp();
+  const { bump, wallet } = useApp();
   const [state, setState] = useState<{ busy?: boolean; err?: string; hash?: Hex }>({});
+  useEffect(() => setState({}), [wallet.account]); // another account's "Done" or error says nothing about this one
   async function go() {
     setState({ busy: true });
     try { const hash = await run(); setState({ hash: hash || undefined }); bump(); }

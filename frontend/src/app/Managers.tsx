@@ -1,7 +1,7 @@
 // Manager leaderboard: every address that ever bid, ranked from the hook's events (Bid, EpochSettled) and the
 // records read. Pay and slashes come from EpochSettled; clean and breached counts from records.
 import { useMemo, useState } from 'react';
-import { zeroAddress, type Address } from 'viem';
+import { getAddress, zeroAddress, type Address } from 'viem';
 import { fmtNum, leashLogs, mandatesFrom, pct, priceAt, short, snapshot, trackRecord, type Snapshot } from './chain.ts';
 import { useApp, usePoll } from './ui.tsx';
 
@@ -97,7 +97,7 @@ export function Managers({ refresh }: { refresh: number }) {
                   return (
                     <tr key={r.who}>
                       <td className="lb-n">{i + 1}</td>
-                      <td><a className="mono violet" href={`#/?who=${r.who}`} title="Their mandates in the explorer">{short(r.who)}</a>{r.who === me && <small> you</small>}</td>
+                      <td><a className="mono violet" href={`#/?who=${r.who}`} title="Their mandates in the explorer">{short(getAddress(r.who))}</a>{r.who === me && <small> you</small>}</td>
                       <td data-k="Won">{r.won}{r.leading > 0 && <small> +{r.leading} leading</small>}</td>
                       <td data-k="Clean" className="mint">{r.clean}</td>
                       <td data-k="Breached" className={r.breached ? 'rose' : undefined}>{r.breached}</td>

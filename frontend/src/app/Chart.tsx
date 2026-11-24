@@ -30,7 +30,7 @@ export function Chart({ samples: raw, price, needLo, needHi, unit }: {
   const span = y1 - y0 || y1 * 0.02 || 1;
   for (const e of ranged.length ? [price(last.lo), price(last.hi)] : []) if (e > y0 - span && e < y1 + span) [y0, y1] = [Math.min(y0, e), Math.max(y1, e)];
   const pad2 = (y1 - y0 || span) * 0.12;
-  [y0, y1] = [y0 - pad2, y1 + pad2];
+  [y0, y1] = [Math.max(0, y0 - pad2), y1 + pad2]; // a price is never below zero, however far it crashed
   const t0 = samples[0].t, t1 = Math.max(last.t, t0 + 1);
   const X = (t: number) => pad.l + ((t - t0) / (t1 - t0)) * (w - pad.l - pad.r);
   const Y = (p: number) => pad.t + (1 - (p - y0) / (y1 - y0)) * (h - pad.t - pad.b);

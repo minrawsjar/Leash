@@ -150,6 +150,8 @@ function Dashboard({ s, samples, records, logs }: { s: Snapshot; samples: Sample
         </dl>
       </section>
 
+      <Keeper s={s} now={now} />
+
       <section className="card span">
         <div className="card-head"><h2>Epochs</h2><span className="quiet">{t.epochs} × {dur(t.epochLength)} · clean needs {pct(t.uptimeBps, 0)} uptime · manager earns {pct(t.managerFeeBps, 0)} of fees</span></div>
         <Timeline s={s} records={records} now={now} />
@@ -165,6 +167,38 @@ function Dashboard({ s, samples, records, logs }: { s: Snapshot; samples: Sample
         <TermsList s={s} />
       </section>
     </div>
+  );
+}
+
+const STALE = 5 * 60; // keepers checkpoint about every minute; past this an active mandate is being judged by its endpoints
+
+/** Keeper status: how stale the books are, what is due, and the two calls anyone can make. */
+function Keeper({ s, now }: { s: Snapshot; now: number }) {
+  const { net, wallet } = useApp();
+  const t = s.m.terms;
+  const hired = s.m.manager !== zeroAddress;
+  const started = now >= t.auctionEnd;
+  const finished = Math.min(t.epochs, Math.max(0, Math.floor((now - t.auctionEnd) / t.epochLength)));
+  const due = hired && !s.m.breached && !s.m.closed ? Math.max(0, finished - s.m.settled) : 0;
+  const age = now - Math.max(s.m.lastCheck, t.auctionEnd);
+  const stale = s.status === 'active' && age > STALE;
+  const nextEnd = t.auctionEnd + (s.m.settled + 1) * t.epochLength;
+  const cpWhy = s.m.closed ? 'Closed.' : !started ? `Nothing to book until the auction ends, in ${dur(t.auctionEnd - now)}.` : !hired ? 'Nobody was hired, so nothing is booked.' : s.m.breached ? 'Breached: booking stopped.' : '';
+  const stWhy = s.m.closed ? 'Closed.' : !hired ? 'Nobody was hired.' : s.m.breached ? 'Breached: settlement stopped.' : s.m.settled >= t.epochs ? 'Every epoch is settled.' : !due ? `Epoch ${s.m.settled + 1} ends in ${dur(nextEnd - now)}.` : '';
+  return (
+    <section className="card span">
+      <div className="card-head"><h2>Keeper</h2><span className="quiet">anyone can call these</span></div>
+      <div className="stats">
+        <Stat label="Last checkpoint">{s.m.lastCheck ? `${dur(now - s.m.lastCheck)} ago` : 'never'}</Stat>
+        <Stat label="Finished, unsettled" tone={due ? 'violet' : undefined}>{due} <small>epoch{due === 1 ? '' : 's'}</small></Stat>
+        <Stat label="Settled">{s.m.settled} <small>of {t.epochs}</small></Stat>
+      </div>
+      {stale && <p className="banner">{s.m.lastCheck ? `No checkpoint for ${dur(age)}.` : `No checkpoint since the auction ended ${dur(age)} ago.`} Until one lands, this stretch is judged only by its two ends: if either is out of compliance, all of it counts against the manager.</p>}
+      <div className="row-btns keeper-acts">
+        <Act label="Checkpoint now" kind="secondary" disabled={!!cpWhy} why={cpWhy || 'Books the time since the last check as in or out of compliance.'} run={async () => act.checkpoint(await wallet.ctx(net), s.key)} />
+        <Act label={`Settle epoch ${Math.min(s.m.settled + 1, t.epochs)}`} disabled={!!stWhy} why={stWhy || (due > 1 ? `${due} epochs are due; they settle one at a time, in order.` : 'Judges the epoch: clean pays the manager, a miss slashes the bond.')} run={async () => act.settle(await wallet.ctx(net), s.key, s.m.settled)} />
+      </div>
+    </section>
   );
 }
 

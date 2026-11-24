@@ -7,6 +7,7 @@ import * as act from './actions.ts';
 import { applyDraft, defaultForm, plan, PRESETS, type Field, type Form } from './plan.ts';
 import type { Draft } from '../../api/draft.ts';
 import { Act, useApp, usePoll } from './ui.tsx';
+import { Backtest } from './Backtest.tsx';
 
 // What each field is, a typical value, and what goes wrong at either end. True to Leash.sol.
 const INFO: Record<Field | 's1' | 's2' | 's3' | 's4' | 's5', string> = {
@@ -131,6 +132,7 @@ export function Create() {
         {problems.length ? `${problems.length} to fix before posting` : 'Ready to post'}<span aria-hidden>Review ↓</span>
       </button>
       <div className="create">
+        <div className="sheet-col">
         <form className="sheet" onSubmit={(ev) => ev.preventDefault()} noValidate>
           <p className="starts">Start from
             {Object.entries(PRESETS).map(([k, v]) => (
@@ -178,6 +180,8 @@ export function Create() {
             {field('anchorPct', 'In the anchor', { unit: '%', sub: ok ? `holds ${pct(ok.anchorBps)} of value · needs 19%` : 'needs 19% of value' })}
           </Sec>
         </form>
+        <Backtest f={f} unit={`${sym.stb} per ${sym.tok}`} />
+        </div>
 
         <aside className="receipt" aria-label="Review" ref={review}>
           <p className="eyebrow">Review</p>

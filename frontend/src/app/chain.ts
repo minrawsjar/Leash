@@ -210,6 +210,14 @@ export function fmtNum(v: number, digits = 2): string {
 export const fmtLiq = (x: bigint) => (x === 0n ? '0' : Number(x).toExponential(2).replace('e+', 'e'));
 /** A price with five significant digits, trailing zeros kept so 2.0000 and 2.0020 line up. */
 export const fmtPrice = (v: number) => (!isFinite(v) ? '–' : Math.abs(v) >= 1000 ? fmtNum(v, 2) : v.toPrecision(5));
+const times = new Map<string, Promise<number>>();
+/** A block's timestamp, cached (blocks never change). */
+export function blockTime(n: Net, b: bigint): Promise<number> {
+  const k = `${n.id}:${b}`;
+  if (!times.has(k)) times.set(k, client(n).getBlock({ blockNumber: b }).then((x) => Number(x.timestamp)));
+  return times.get(k)!;
+}
+export const ago = (s: number) => (s < 60 ? 'just now' : `${dur(s).split(' ')[0]} ago`);
 export const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
 export const pct = (bps: number, d = 1) => `${(bps / 100).toFixed(d)}%`;
 export const feePct = (pips: number) => `${(pips / 10_000).toFixed(pips % 100 ? 3 : 2)}%`;

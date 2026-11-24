@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { parseUnits, zeroAddress, type Address, type Hex } from 'viem';
 import {
-  amountsAt, chainNow, client, dur, endOf, epochRecords, feePct, fmt, fmtLiq, fmtNum, fmtPrice, glideAt, GROW_BPS, leashLogs, MAX_GROW_GAP,
+  ago, amountsAt, blockTime, chainNow, client, dur, endOf, epochRecords, feePct, fmt, fmtLiq, fmtNum, fmtPrice, glideAt, GROW_BPS, leashLogs, MAX_GROW_GAP,
   mandatesFrom, maxTick, minTick, owed, pct, priceAt, short, slot0, snapshot, stableOf, trackRecord, leashAbi,
   type EpochRecord, type LeashLog, type Net, type Snapshot,
 } from './chain.ts';
@@ -240,11 +240,14 @@ function Feed({ s, logs }: { s: Snapshot; logs: LeashLog[] }) {
       default: return ['', l.eventName];
     }
   };
+  const { net } = useApp();
+  const shown = [...logs].reverse().slice(0, 30);
+  const times = usePoll(() => Promise.all(shown.map((l) => blockTime(net, l.blockNumber))), 15_000, [shown.length, String(shown[0]?.blockNumber)]);
   if (!logs.length) return <p className="quiet">No events yet.</p>;
   return (
     <ol className="feed">
-      {[...logs].reverse().slice(0, 30).map((l) => { const [tone, text] = say(l); return (
-        <li key={`${l.transactionHash}-${l.logIndex}`}><i className={`fdot ${tone}`} /><span>{text}</span><small>#{String(l.blockNumber)} · <TxLink hash={l.transactionHash} /></small></li>
+      {shown.map((l, i) => { const [tone, text] = say(l); return (
+        <li key={`${l.transactionHash}-${l.logIndex}`}><i className={`fdot ${tone}`} /><span>{text}</span><small>{times.data ? `${ago(s.now - times.data[i])} · ` : ''}block {String(l.blockNumber)} · <TxLink hash={l.transactionHash} /></small></li>
       ); })}
     </ol>
   );
@@ -510,7 +513,7 @@ function Settle({ s, records }: { s: Snapshot; records: EpochRecord[] }) {
         <Act label={`Settle epoch ${next + 1}`} disabled={!!settleWhy} why={settleWhy} run={async () => act.settle(await wallet.ctx(net), s.key, next)} />
       </section>
 
-      <section className="card">
+      <section className="card" style={closeWhy && s.status !== 'unhired' && s.status !== 'ended' && !s.m.breached ? undefined : { order: -1 }}>
         <div className="card-head"><h2>Close</h2><span className="quiet">treasury only</span></div>
         <p className="quiet">Settles any remaining epochs, pulls the managed position and the anchor out of the pool, and sends all inventory and fees back to the treasury. The manager's bond (if not slashed) becomes claimable.</p>
         <Act label="Close mandate" kind="secondary" disabled={!!closeWhy} why={closeWhy} run={async () => act.close(await wallet.ctx(net), s.key)} />

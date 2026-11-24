@@ -1,4 +1,4 @@
-# Leash dApp brief (round 3)
+# Leash dApp brief (round 4)
 
 The app at `/app`: every Leash mandate, live, and every write a treasury, manager or keeper makes.
 
@@ -29,7 +29,13 @@ The app at `/app`: every Leash mandate, live, and every write a treasury, manage
 - A chart with one sample draws nothing; pad it to a flat line.
 - Phone screenshots: use CDP Emulation (390px), not an iframe under virtual time.
 
-## Next fixes (round 4)
-- Activity: relative times (needs block timestamps; batch getBlock for the visible rows only).
-- Settle tab when the mandate is unhired/ended: lead with the one action that matters (close).
-- Final pass: keyboard focus order, aria on tabs, 390px for auction and settle.
+## Done in round 4
+- Activity rows show relative time (block timestamps, cached per block, visible rows only).
+- Settle tab puts Close first when it is the action that matters (unhired, ended, breached).
+- 390px checked for index, dashboard, auction, manage, settle, create.
+
+## Open problems
+- Wallet connect itself is only exercised through an injected shim (no real extension headless).
+- Unichain Sepolia has no mandates yet: only the empty state and the Blockscout log path are proven there.
+- Bundle is ~615 kB (viem); split the app chunk from the landing page if load time matters.
+- Fees between two settles show only once collected (contract books fees when collected, by design).

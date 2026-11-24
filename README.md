@@ -84,7 +84,9 @@ Blocking withdrawals is the easy part. A manager who wants to steal can do it th
 Nothing was withdrawn, yet the treasury lost money. Leash blocks this with a **TWAP** (time-weighted average price) that the hook records itself:
 
 - **Rebalance guard.** Liquidity can only be placed while the pool price is close to the TWAP. A price pushed for one block is far from the average, so the rebalance reverts.
-- **Never-empty pool.** The treasury places the opening position at creation, and a rebalance can never take liquidity below the depth floor. Moving the price always costs real capital, and arbitrage pushes it back.
+- **Anchor: liquidity at every price.** At creation the treasury places a permanent full-range position that the manager can never move. With no empty price range, moving or holding the price anywhere costs capital and invites arbitrage. Without it, the price outside the treasury's range could be parked for free and the TWAP dragged.
+- **No sandwiches.** At most one rebalance per block, none after the price has moved in that block, a minimum range width around the TWAP, a fee floor, and the position may only grow while spot sits at the TWAP. A manager who nudges the price and re-ranges behind it pays more in fees than it can extract.
+- **Truncated oracle.** Each recorded price may move at most 50 ticks (about 0.5%) per second. A real crash shows up within a minute or so, but a price parked for one block moves the 30-minute TWAP by a few ticks at most.
 - **Grief guard.** Compliance is measured against the TWAP, not the current price. An outsider can't knock the price out of range for one block to get the manager slashed.
 
 v4 has no built-in oracle, so the hook stores its own price observations. It records one in `beforeSwap`, at the first swap of each block, using the price *before* that swap (the same approach as Uniswap v3's oracle). Moving the price and moving it back within one block leaves no trace in the TWAP.
@@ -120,7 +122,7 @@ Leash pools are created with v4's dynamic-fee flag. The fee starts at the mandat
 | `stableIs0` | Which pool currency is the stablecoin. Bonds are paid in it. |
 | `maxFee` | Fee cap in hundredths of a basis point (v4 "pips"). |
 | `auctionEnd` | When bidding closes and epoch 0 starts. Must be at least one TWAP window away, so the oracle has full history before the manager can act. |
-| `epochLength`, `epochs` | Epoch duration in seconds, and how many epochs there are (at most 365). |
+| `epochLength`, `epochs` | Epoch duration in seconds, and how many epochs there are (at most 104). |
 | `minBond` | Smallest acceptable bond. |
 | `twapWindow` | Seconds the TWAP averages over. |
 | `maxTickDeviation` | A rebalance is refused while spot is more than this many ticks from the TWAP (100 ticks ≈ 1%). |
@@ -128,6 +130,9 @@ Leash pools are created with v4's dynamic-fee flag. The fee starts at the mandat
 | `uptimeBps` | Share of each epoch that must be in compliance, e.g. 9500 = 95%. |
 | `managerFeeBps` | Manager's share of a clean epoch's LP fees, e.g. 3000 = 30%. |
 | `startStableBps`, `endStableBps` | Pace glide path: the highest stablecoin share of inventory value allowed, from epoch 0 to the end, linear in between. |
+| `minFee` | Fee floor. With `maxFee`, the manager sets the fee inside this band, so manipulation round trips always cost. |
+| `minHalfWidth` | The managed range must reach at least this many ticks either side of the TWAP, with spot strictly inside. Must exceed `maxTickDeviation`. |
+| `anchorLiquidity` | A permanent full-range position the manager can never move, so there is liquidity at every price (see below). |
 
 ## Status
 
@@ -146,14 +151,16 @@ Hookathon deadline is 3 December 2026.
 | Invariant fuzzing: ledger always matches balances; managers gain only their pay | ✅ |
 | Deploy script, local dev chain, keeper | ✅ |
 | Landing page (React + TypeScript) | ✅ |
-| Independent security review | 🔨 in progress |
+| Independent security audit: 2 critical, 1 high, 2 medium, 1 low found and fixed; each attack kept as a regression test | ✅ |
+| Re-audit of the fixes | 🔨 in progress |
 | Unichain Sepolia deployment | ⏳ |
 | App screens: create a mandate, bid, manage, dashboard | ⏳ |
 
 ### Known limits
 
 - **Arbitrage keeps the price honest.** The pool holds only the treasury's liquidity, so its price tracks the wider market only as well as arbitrageurs link the two.
-- **A thin pool's TWAP can still be dragged** over many blocks by someone willing to pay for it. The TWAP window and the rebalance deviation limit bound how far.
+- **The TWAP assumes arbitrage.** If nobody trades the pool back toward the market, holding a price costs nothing and any TWAP can be dragged. The anchor turns holding into a cost: keeping the price X ticks away for one block costs about (anchor + managed liquidity in the path) × (X/20000)², paid to the arbitrageur who trades it back. Dragging the TWAP means paying that every block for a whole window. The cost grows with the anchor's size, with blocks per window and with the square of the distance. Size the anchor and `minLiquidity` so dragging costs far more than a bond, or than what a manager could extract around a fake price. In the audit's test setup (12-second blocks, anchor about 20% of value), dragging cost 3–8× what it could extract, and forcing an honest manager's breach cost 68× the bond. On 1-second blocks each figure is about 12× higher.
+- **Managers can't deepen during trends.** While spot is off the TWAP they can re-range at the same or smaller size; growing the position waits until the TWAP catches up.
 - **ERC-20 only.** Native ETH pools are rejected.
 - **One mandate per pool.** One hook serves many pools.
 - **Oracle history is fixed at 1,024 observations** (one per block with a swap). A pool swapped every block on 1-second blocks keeps about 17 minutes, and longer windows quietly shorten to what's held. A growable buffer, as in Uniswap v3, would lift this.
@@ -171,6 +178,7 @@ test/Leash.t.sol           unit tests
 test/fuzz/                 invariant tests: ledger == balances, managers gain only their pay
 test/Deploy.t.sol          the deployed hook address encodes exactly its permissions
 test/Settle.t.sol          keeper logic
+test/audit/                the audit's attacks, each asserting it now fails
 script/DeployLeash.s.sol   mines the hook address and deploys (Unichain Sepolia or any chain)
 script/Local.s.sol         local stack: v4, mock tokens, Leash and a seeded mandate
 script/Settle.s.sol        keeper round: checkpoint, then settle ended epochs

@@ -1,138 +1,20 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
-import {Test, stdError} from "forge-std/Test.sol";
-import {Deployers} from "@uniswap/v4-core/test/utils/Deployers.sol";
-import {MockERC20} from "solmate/src/test/utils/mocks/MockERC20.sol";
-import {Hooks} from "v4-core/libraries/Hooks.sol";
-import {LPFeeLibrary} from "v4-core/libraries/LPFeeLibrary.sol";
+import {stdError} from "forge-std/Test.sol";
 import {StateLibrary} from "v4-core/libraries/StateLibrary.sol";
 import {FullMath} from "v4-core/libraries/FullMath.sol";
 import {TickMath} from "v4-core/libraries/TickMath.sol";
 import {SqrtPriceMath} from "v4-core/libraries/SqrtPriceMath.sol";
-import {LiquidityAmounts} from "v4-periphery/src/libraries/LiquidityAmounts.sol";
-import {IHooks} from "v4-core/interfaces/IHooks.sol";
 import {PoolKey} from "v4-core/types/PoolKey.sol";
 import {PoolIdLibrary} from "v4-core/types/PoolId.sol";
-import {Currency} from "v4-core/types/Currency.sol";
-import {SwapParams} from "v4-core/types/PoolOperation.sol";
-import {IPoolManager} from "v4-core/interfaces/IPoolManager.sol";
-import {Vm} from "forge-std/Vm.sol";
-import {PoolSwapTest} from "v4-core/test/PoolSwapTest.sol";
 import {Leash, Terms, Position, Mandate, EpochRecord} from "../src/Leash.sol";
+import {LeashBase} from "./utils/LeashBase.sol";
 
-contract LeashTest is Test, Deployers {
+/// One test per rule, on the shared mandate (test/utils/LeashBase.sol).
+contract LeashTest is LeashBase {
     using PoolIdLibrary for PoolKey;
     using StateLibrary for *;
-
-    uint160 constant FLAGS =
-        uint160(Hooks.BEFORE_INITIALIZE_FLAG | Hooks.BEFORE_ADD_LIQUIDITY_FLAG | Hooks.BEFORE_SWAP_FLAG);
-    /// LP fees of a 10-token swap at the 1% fee, managed position's share: L 1000 next to the anchor's L 20.
-    uint256 constant MANAGED_FEE = 0.1e18 * uint256(1_000) / 1_020;
-
-    Leash leash;
-    address alice = makeAddr("alice");
-    address bob = makeAddr("bob");
-    uint40 auctionEnd;
-
-    function setUp() public {
-        deployFreshManagerAndRouters();
-        (currency0, currency1) = deployMintAndApprove2Currencies();
-
-        address hook = address(FLAGS ^ (0x4444 << 144));
-        deployCodeTo("Leash.sol:Leash", abi.encode(manager), hook);
-        leash = Leash(hook);
-        key = PoolKey(currency0, currency1, LPFeeLibrary.DYNAMIC_FEE_FLAG, 60, IHooks(hook));
-
-        MockERC20(Currency.unwrap(currency0)).approve(hook, type(uint256).max);
-        MockERC20(Currency.unwrap(currency1)).approve(hook, type(uint256).max);
-        auctionEnd = uint40(block.timestamp + 1 days);
-        leash.createMandate(key, SQRT_PRICE_1_1, _terms(), 100e18, 100e18, _initial());
-
-        for (uint256 i; i < 2; i++) {
-            address who = i == 0 ? alice : bob;
-            MockERC20(Currency.unwrap(currency1)).mint(who, 1_000e18);
-            vm.prank(who);
-            MockERC20(Currency.unwrap(currency1)).approve(hook, type(uint256).max);
-        }
-    }
-
-    function _terms() internal view returns (Terms memory) {
-        return Terms({
-            stableIs0: false,
-            maxFee: 10_000,
-            auctionEnd: auctionEnd,
-            epochLength: 1 days,
-            epochs: 3,
-            minBond: 10e18,
-            twapWindow: 1800,
-            maxTickDeviation: 100,
-            minLiquidity: 100e18,
-            uptimeBps: 9500,
-            managerFeeBps: 3000,
-            startStableBps: 10_000,
-            endStableBps: 10_000,
-            minFee: 500,
-            minHalfWidth: 200,
-            anchorLiquidity: 20e18 // full range, ~20 of each token at 1:1: 20% of the inventory's value
-        });
-    }
-
-    /// Uses ~29.6 of each token at 1:1.
-    function _initial() internal pure returns (Position memory) {
-        return Position(-600, 600, 1_000e18);
-    }
-
-    function _m() internal view returns (Mandate memory) {
-        return leash.mandate(key.toId());
-    }
-
-    function _bal(Currency c, address who) internal view returns (uint256) {
-        return MockERC20(Currency.unwrap(c)).balanceOf(who);
-    }
-
-    function _tick() internal view returns (int24 tick) {
-        (, tick,,) = manager.getSlot0(key.toId());
-    }
-
-    /// Exact-input swap that stops at `limitTick`.
-    function _swapTo(bool zeroForOne, int256 amount, int24 limitTick) internal {
-        swapRouter.swap(
-            key,
-            SwapParams(zeroForOne, amount, TickMath.getSqrtPriceAtTick(limitTick)),
-            PoolSwapTest.TestSettings(false, false),
-            ZERO_BYTES
-        );
-    }
-
-    /// The hook's balances are exactly the mandate's inventory, unsettled fees, the bond and what it owes.
-    function _assertLedger() internal view {
-        Mandate memory m = _m();
-        address[3] memory who = [address(this), alice, bob];
-        uint256 owed0;
-        uint256 owed1;
-        for (uint256 i; i < 3; i++) {
-            owed0 += leash.owed(who[i], currency0);
-            owed1 += leash.owed(who[i], currency1);
-        }
-        assertEq(_bal(currency0, address(leash)), m.idle0 + m.fees0 + owed0, "ledger == balance (0)");
-        assertEq(_bal(currency1, address(leash)), m.idle1 + m.fees1 + owed1 + m.bond, "ledger == balance (1)");
-    }
-
-    /// Alice wins; a keeper checkpoints as epoch 0 opens.
-    /// Swaps from either side until the price is exactly at `t`.
-    function _moveTo(int24 t) internal {
-        (uint160 p,,,) = manager.getSlot0(key.toId());
-        uint160 target = TickMath.getSqrtPriceAtTick(t);
-        if (p != target) _swapTo(target < p, 1e30, t);
-    }
-
-    function _win() internal {
-        vm.prank(alice);
-        leash.bid(key, 10e18);
-        vm.warp(auctionEnd);
-        leash.checkpoint(key);
-    }
 
     // ---------------------------------------------------------------- creation
 
@@ -149,7 +31,7 @@ contract LeashTest is Test, Deployers {
     }
 
     function test_createMandate_rejectsShallowOrOffPricePosition() public {
-        PoolKey memory k = PoolKey(currency0, currency1, LPFeeLibrary.DYNAMIC_FEE_FLAG, 10, IHooks(address(leash)));
+        PoolKey memory k = _key(10);
         vm.expectRevert(Leash.TooShallow.selector);
         leash.createMandate(k, SQRT_PRICE_1_1, _terms(), 100e18, 100e18, Position(-600, 600, 99e18));
         vm.expectRevert(Leash.RangeMissesTwap.selector);
@@ -168,12 +50,6 @@ contract LeashTest is Test, Deployers {
         t.minHalfWidth = t.maxTickDeviation;
         vm.expectRevert(Leash.BadTerms.selector);
         leash.createMandate(k, SQRT_PRICE_1_1, t, 100e18, 100e18, _initial());
-    }
-
-    function _anchorLiquidity() internal view returns (uint128 liq) {
-        (liq,,) = manager.getPositionInfo(
-            key.toId(), address(leash), TickMath.minUsableTick(60), TickMath.maxUsableTick(60), bytes32(uint256(1))
-        );
     }
 
     /// The anchor spans the full range, the manager can't move it, and its fees go to the treasury at close.
@@ -209,7 +85,7 @@ contract LeashTest is Test, Deployers {
     }
 
     function test_outsiderCannotCreateLeashPool() public {
-        PoolKey memory other = PoolKey(currency0, currency1, LPFeeLibrary.DYNAMIC_FEE_FLAG, 10, IHooks(address(leash)));
+        PoolKey memory other = _key(10);
         vm.expectRevert();
         manager.initialize(other, SQRT_PRICE_1_1);
     }
@@ -458,15 +334,6 @@ contract LeashTest is Test, Deployers {
         assertEq(leash.currentEpoch(key), 1);
     }
 
-    /// A keeper checkpointing every minute until `until`.
-    function _keep(uint256 until) internal {
-        while (block.timestamp + 1 minutes <= until) {
-            vm.warp(block.timestamp + 1 minutes);
-            vm.roll(block.number + 1);
-            leash.checkpoint(key);
-        }
-    }
-
     /// The TWAP leaves the range after a spike and drifts back on its own while nobody checkpoints. The manager
     /// checkpoints once it's back (here via setFee): the stretch since the last bad checkpoint is still booked out.
     /// Judged by its end alone, the last 110 minutes would have been booked in.
@@ -541,7 +408,7 @@ contract LeashTest is Test, Deployers {
     /// Glide path 55% -> 90% stablecoin. Buyers take currency0 for stablecoin through the position, pushing the
     /// stable share to ~59%: ahead of the path for now, so out of compliance; on pace again a day later.
     function test_pace_sellingAheadOfGlidePathIsOutOfCompliance() public {
-        key = PoolKey(currency0, currency1, LPFeeLibrary.DYNAMIC_FEE_FLAG, 10, IHooks(address(leash)));
+        key = _key(10);
         Terms memory t = _terms();
         (t.startStableBps, t.endStableBps) = (5500, 9000);
         leash.createMandate(key, SQRT_PRICE_1_1, t, 100e18, 100e18, _initial());
@@ -752,7 +619,7 @@ contract LeashTest is Test, Deployers {
     /// Worst case for the checkpoint loop: the maximum 104 one-hour epochs and no activity at all until after the
     /// end. The first swap afterwards books every epoch, and must fit the 2^24 per-transaction gas cap.
     function test_swap_afterQuietGapAcrossAllEpochs() public {
-        key = PoolKey(currency0, currency1, LPFeeLibrary.DYNAMIC_FEE_FLAG, 10, IHooks(address(leash)));
+        key = _key(10);
         Terms memory t = _terms();
         (t.epochs, t.epochLength) = (105, 1 hours);
         vm.expectRevert(Leash.BadTerms.selector);
@@ -775,18 +642,6 @@ contract LeashTest is Test, Deployers {
     }
 
     // ---------------------------------------------------------------- dynamic fee
-
-    /// The fee the PoolManager charged a small swap, from its Swap event.
-    function _feeOfSwap(bool zeroForOne) internal returns (uint24 fee) {
-        vm.recordLogs();
-        _swapTo(zeroForOne, 1e12, zeroForOne ? TickMath.MIN_TICK + 1 : TickMath.MAX_TICK - 1);
-        Vm.Log[] memory logs = vm.getRecordedLogs();
-        for (uint256 i; i < logs.length; i++) {
-            if (logs[i].topics[0] == IPoolManager.Swap.selector) {
-                (,,,,, fee) = abi.decode(logs[i].data, (int128, int128, uint160, uint128, int24, uint24));
-            }
-        }
-    }
 
     function test_dynamicFee_equalsSetFeeAtTwap() public {
         _win();
@@ -926,7 +781,7 @@ contract LeashTest is Test, Deployers {
 
     /// minBond must be at least 2% of the deposit's value: 200 at 1:1 needs 4.
     function test_minBond_atLeastTwoPercentOfDeposit() public {
-        key = PoolKey(currency0, currency1, LPFeeLibrary.DYNAMIC_FEE_FLAG, 10, IHooks(address(leash)));
+        key = _key(10);
         Terms memory t = _terms();
         t.minBond = 4e18 - 1;
         vm.expectRevert(Leash.ThinBond.selector);
@@ -938,7 +793,7 @@ contract LeashTest is Test, Deployers {
     /// Stablecoin is currency0 at 4 currency1 each: the deposit (100 + 100) is worth 500 currency1, so the bond
     /// floor is 10 currency1 = 2.5 of the stablecoin.
     function test_minBond_valuedInTheStablecoin() public {
-        key = PoolKey(currency0, currency1, LPFeeLibrary.DYNAMIC_FEE_FLAG, 30, IHooks(address(leash)));
+        key = _key(30);
         Terms memory t = _terms();
         (t.stableIs0, t.anchorLiquidity, t.startStableBps) = (true, 30e18, 10_000);
         Position memory p = Position(13_200, 14_400, 500e18);

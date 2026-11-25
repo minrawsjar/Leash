@@ -1,6 +1,6 @@
 # Audit: Every Finding, Its Attack, Its Fix and Its Test
 
-> **Foundry, Solidity 0.8.26. 20 tests passing (12 audit, 8 re-audit), measured with `forge test --match-path 'test/audit/*' -vv`. Against the hook deployed on Unichain Sepolia at [`0xA8e4…2880`](https://unichain-sepolia.blockscout.com/address/0xA8e4A5CECA23777aB7a6f07aE682845c891e2880).**
+> **Foundry, Solidity 0.8.26. 21 tests passing (13 audit, 8 re-audit), measured with `forge test --match-path 'test/audit/*' -vv`. Against the hook deployed on Unichain Sepolia at [`0xA8e4…2880`](https://unichain-sepolia.blockscout.com/address/0xA8e4A5CECA23777aB7a6f07aE682845c891e2880).**
 
 Two review rounds were run against [`src/Leash.sol`](../../src/Leash.sol). The first (the audit) found 2 critical, 1 high, 2 medium and 1 low. The second (the re-audit) reviewed the fixes and found 1 high, 2 medium and 2 low. Every finding except the documentation fix (Low-2) started as a proof of concept that demonstrated the attack; after the fix, the same test was turned around to assert the attack fails. Where a fix refuses the original move, the test also runs the **strongest variant that is still legal** and measures that it loses. Where a finding is a limit that can only be bounded, not removed, the test asserts the measured damage stays inside a bound, so any regression fails.
 
@@ -159,9 +159,9 @@ The breach is real: holding the price at the edge for a whole window and longer 
 
 **Fix.** `MAX_EPOCHS = 104` (two years of weekly epochs), enforced in `createMandate` (`BadTerms`).
 
-**Test.** `test_L1_closeAfter365UnsettledEpochsExceedsTxGasCap`: 365 epochs reverts `BadTerms`; with 104 one-hour epochs, all unsettled, `close` (one checkpoint booking every epoch, then 104 settles, each poking the position) uses **8,610,615 gas**, under 16,777,216; `settled == 104`.
+**Test.** `test_L1_closeAfter365UnsettledEpochsExceedsTxGasCap`: 365 epochs reverts `BadTerms`; with 104 one-hour epochs, all unsettled, `close` (one checkpoint booking every epoch, then 104 settles, each poking the position) uses **8,613,731 gas**, under 16,777,216; `settled == 104`.
 
-The matching worst case for swaps is in the unit suite: `test_swap_afterQuietGapAcrossAllEpochs` measures 2,534,163 gas for the first swap after a quiet gap over 104 epochs.
+The matching worst case for swaps is in the unit suite: `test_swap_afterQuietGapAcrossAllEpochs` measures 2,582,947 gas for the first swap after a quiet gap over 104 epochs.
 
 ### Coverage: post-end judging (expected to hold)
 

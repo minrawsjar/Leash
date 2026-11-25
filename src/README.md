@@ -1,6 +1,6 @@
 # Contracts: The Leash Hook
 
-> **Solidity 0.8.26, Foundry, Cancun, optimizer 800 runs. 61 tests passing across 6 suites. Deployed on Unichain Sepolia (chain 1301), source verified.**
+> **Solidity 0.8.26, Foundry, Cancun, optimizer 800 runs. 101 tests passing across 8 suites. Deployed on Unichain Sepolia (chain 1301), source verified.**
 
 Everything Leash puts on chain is one contract, [`Leash.sol`](Leash.sol), plus the vendored v4 [`BaseHook`](utils/BaseHook.sol) it inherits from. One deployed hook serves any number of pools, one mandate per pool. A treasury deposits inventory and posts terms; managers bid a first-loss bond; the winner moves the liquidity and sets the fee inside those terms but can never withdraw it; the hook checks the terms on every swap and pays or slashes per epoch.
 
@@ -254,7 +254,7 @@ Only the treasury, and only when one of these holds:
 
 Then `close` marks the mandate closed, removes the managed position and the anchor in one unlock, credits any bond still held to the manager (zero if slashed or already freed), and transfers `idle + fees` of both currencies to the treasury. After `close`, the hook holds for this mandate only what it owes in `owed`. `test_close_returnsEverything`, `test_close_paysCleanManagerFirst` (nobody settled during the mandate; close settles all three before paying out), `test_close_noBids_afterAuction`, `test_anchor_fullRangeUntouchedByRebalancesRemovedAtClose`.
 
-Closing settles every remaining epoch in one transaction, which is why `epochs` is capped at 104: `test_L1_closeAfter365UnsettledEpochsExceedsTxGasCap` measures close with 104 unsettled epochs at **8,610,615 gas**, under 2²⁴ = 16,777,216.
+Closing settles every remaining epoch in one transaction, which is why `epochs` is capped at 104: `test_L1_closeAfter365UnsettledEpochsExceedsTxGasCap` measures close with 104 unsettled epochs at **8,613,731 gas**, under 2²⁴ = 16,777,216.
 
 ### Claims and owed balances
 
@@ -289,14 +289,14 @@ v4 has no built-in oracle, so the hook keeps one per pool (`Oracle`: a 1,024-slo
 
 Every swap runs `_beforeSwap`: read slot0, `_observe`, `_checkpoint`, return a zero delta and no fee override. `_checkpoint` returns early in every state where there is nothing to book (auction running, no manager, breached, closed, mandate over and fully booked), and nothing in it reverts on mandate state. So the pool keeps trading through every stage of the lifecycle: `test_swap_neverBricks_cleanLifecycle`, `test_swap_neverBricks_noBids`, `test_swap_neverBricks_breached`. After `close` the pool has no liquidity, but swaps still don't revert in the hook.
 
-The worst case for the checkpoint loop is the first swap after a quiet gap spanning all 104 one-hour epochs: `test_swap_afterQuietGapAcrossAllEpochs` measures **2,534,163 gas**, under the 2²⁴ cap.
+The worst case for the checkpoint loop is the first swap after a quiet gap spanning all 104 one-hour epochs: `test_swap_afterQuietGapAcrossAllEpochs` measures **2,582,947 gas**, under the 2²⁴ cap.
 
 ## Test Coverage
 
 ```
-61 passing, 0 failed, 0 skipped, 6 suites
-  LeashTest 35, LeashAuditTest 12, LeashReauditTest 8,
-  DeployTest 2, SettleTest 2, LeashInvariantTest 2 (128 runs x 100 calls each)
+101 passing, 0 failed, 0 skipped, 8 suites
+  LeashTest 45, LeashPathsTest 16, LeashFuzzTest 12 (256 runs each), LeashAuditTest 13, LeashReauditTest 8,
+  DeployTest 2, SettleTest 2, LeashInvariantTest 3 (128 runs x 100 calls each)
 ```
 
 Per-suite detail is in [`../test/README.md`](../test/README.md); every audit finding, its attack and its measured numbers are in [`../test/audit/README.md`](../test/audit/README.md).
@@ -305,9 +305,9 @@ Per-suite detail is in [`../test/README.md`](../test/README.md); every audit fin
 
 ```bash
 forge build
-forge build --sizes                       # Leash runtime 24,510 B (66 B under the limit)
-forge test                                # all 61
-forge test --match-path test/Leash.t.sol  # the 35 unit tests for this contract
+forge build --sizes                       # Leash runtime 24,566 B (10 B under the limit)
+forge test                                # all 101
+forge test --match-path test/Leash.t.sol  # the 45 unit tests for this contract
 forge inspect Leash abi                   # the ABI; the frontend reads deployments/abi/Leash.json
 ```
 

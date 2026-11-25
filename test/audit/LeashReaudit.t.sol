@@ -1,104 +1,26 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
-import {Test} from "forge-std/Test.sol";
-import {Deployers} from "@uniswap/v4-core/test/utils/Deployers.sol";
-import {MockERC20} from "solmate/src/test/utils/mocks/MockERC20.sol";
-import {Hooks} from "v4-core/libraries/Hooks.sol";
-import {LPFeeLibrary} from "v4-core/libraries/LPFeeLibrary.sol";
 import {StateLibrary} from "v4-core/libraries/StateLibrary.sol";
-import {TickMath} from "v4-core/libraries/TickMath.sol";
 import {FullMath} from "v4-core/libraries/FullMath.sol";
-import {SqrtPriceMath} from "v4-core/libraries/SqrtPriceMath.sol";
-import {IHooks} from "v4-core/interfaces/IHooks.sol";
 import {PoolKey} from "v4-core/types/PoolKey.sol";
 import {PoolIdLibrary} from "v4-core/types/PoolId.sol";
-import {Currency} from "v4-core/types/Currency.sol";
-import {SwapParams} from "v4-core/types/PoolOperation.sol";
-import {PoolSwapTest} from "v4-core/test/PoolSwapTest.sol";
-import {LiquidityAmounts} from "v4-periphery/src/libraries/LiquidityAmounts.sol";
-import {Leash, Terms, Position, Mandate, EpochRecord} from "../../src/Leash.sol";
+import {Leash, Terms, Position, EpochRecord} from "../../src/Leash.sol";
+import {LeashBase} from "../utils/LeashBase.sol";
 
 /// Re-audit PoCs against the round-3 fixes (anchor, minHalfWidth, minFee, same-block rules, grow rule, truncated
 /// oracle). Same setup as test/audit/LeashAudit.t.sol: 100/100 at 1:1, managed [-600, 600) L=1000e18, anchor 20e18
 /// full range, bond 10e18 in currency1, TWAP 1800s, maxTickDeviation 100, minHalfWidth 200, fee floor 0.05%.
-contract LeashReauditTest is Test, Deployers {
+contract LeashReauditTest is LeashBase {
     using PoolIdLibrary for PoolKey;
     using StateLibrary for *;
 
-    uint160 constant FLAGS =
-        uint160(Hooks.BEFORE_INITIALIZE_FLAG | Hooks.BEFORE_ADD_LIQUIDITY_FLAG | Hooks.BEFORE_SWAP_FLAG);
-
-    Leash leash;
-    address alice = makeAddr("alice"); // manager
     address arb = makeAddr("arb"); // arbitrageur
-    uint40 auctionEnd;
 
-    function setUp() public {
-        deployFreshManagerAndRouters();
-        (currency0, currency1) = deployMintAndApprove2Currencies();
-        address hook = address(FLAGS ^ (0x4444 << 144));
-        deployCodeTo("Leash.sol:Leash", abi.encode(manager), hook);
-        leash = Leash(hook);
-        key = PoolKey(currency0, currency1, LPFeeLibrary.DYNAMIC_FEE_FLAG, 60, IHooks(hook));
-
-        _approveAll();
-        auctionEnd = uint40(block.timestamp + 1 days);
-        leash.createMandate(key, SQRT_PRICE_1_1, _terms(), 100e18, 100e18, Position(-600, 600, 1_000e18));
-
-        address[2] memory who = [alice, arb];
-        for (uint256 i; i < 2; i++) {
-            MockERC20(Currency.unwrap(currency0)).mint(who[i], 1_000_000e18);
-            MockERC20(Currency.unwrap(currency1)).mint(who[i], 1_000_000e18);
-            vm.startPrank(who[i]);
-            _approveAll();
-            vm.stopPrank();
-        }
-    }
-
-    function _approveAll() internal {
-        address[2] memory spenders = [address(leash), address(swapRouter)];
-        for (uint256 i; i < 2; i++) {
-            MockERC20(Currency.unwrap(currency0)).approve(spenders[i], type(uint256).max);
-            MockERC20(Currency.unwrap(currency1)).approve(spenders[i], type(uint256).max);
-        }
-    }
-
-    function _terms() internal view returns (Terms memory) {
-        return Terms({
-            stableIs0: false,
-            maxFee: 10_000,
-            auctionEnd: auctionEnd,
-            epochLength: 1 days,
-            epochs: 3,
-            minBond: 10e18,
-            twapWindow: 1800,
-            maxTickDeviation: 100,
-            minLiquidity: 100e18,
-            uptimeBps: 9500,
-            managerFeeBps: 3000,
-            startStableBps: 10_000,
-            endStableBps: 10_000,
-            minFee: 500,
-            minHalfWidth: 200,
-            anchorLiquidity: 20e18
-        });
-    }
-
-    function _m() internal view returns (Mandate memory) {
-        return leash.mandate(key.toId());
-    }
-
-    function _bal(Currency c, address who) internal view returns (uint256) {
-        return MockERC20(Currency.unwrap(c)).balanceOf(who);
-    }
-
-    function _tick() internal view returns (int24 tick) {
-        (, tick,,) = manager.getSlot0(key.toId());
-    }
-
-    function _sqrt(int24 t) internal pure returns (uint160) {
-        return TickMath.getSqrtPriceAtTick(t);
+    function setUp() public override {
+        _deploy();
+        _fund(alice, 1_000_000e18, 1_000_000e18);
+        _fund(arb, 1_000_000e18, 1_000_000e18);
     }
 
     /// Value in currency1 at the market price of tick `t`, counting what the hook owes `who` (pay, not the bond).
@@ -107,54 +29,6 @@ contract LeashReauditTest is Test, Deployers {
         uint256 a0 = _bal(currency0, who) + leash.owed(who, currency0);
         uint256 a1 = _bal(currency1, who) + leash.owed(who, currency1);
         return int256(FullMath.mulDiv(FullMath.mulDiv(a0, p, 1 << 96), p, 1 << 96) + a1);
-    }
-
-    function _swapAs(address who, bool zeroForOne, uint160 limit) internal {
-        vm.prank(who);
-        swapRouter.swap(key, SwapParams(zeroForOne, 1e30, limit), PoolSwapTest.TestSettings(false, false), ZERO_BYTES);
-    }
-
-    function _moveTo(address who, int24 t) internal {
-        (uint160 p,,,) = manager.getSlot0(key.toId());
-        uint160 target = _sqrt(t);
-        if (p != target) _swapAs(who, target < p, target);
-    }
-
-    function _win() internal {
-        vm.prank(alice);
-        leash.bid(key, 10e18);
-        vm.warp(auctionEnd);
-        leash.checkpoint(key);
-    }
-
-    function _next(uint256 secs) internal {
-        vm.warp(block.timestamp + secs);
-        vm.roll(block.number + 1);
-    }
-
-    function _keep(uint256 until) internal {
-        while (block.timestamp + 1 minutes <= until) {
-            _next(1 minutes);
-            leash.checkpoint(key);
-        }
-    }
-
-    function _round(int256 t, bool up) internal pure returns (int24) {
-        int256 f = t - (t % 60);
-        if (t % 60 < 0) f -= 60;
-        return int24(up && f != t ? f + 60 : f);
-    }
-
-    /// The most liquidity the mandate's inventory (idle plus the current managed position, at spot) can put in [lo, hi).
-    function _maxLiquidity(int24 lo, int24 hi) internal view returns (uint128) {
-        Mandate memory m = _m();
-        (uint160 p,,,) = manager.getSlot0(key.toId());
-        (uint160 l, uint160 h) = (_sqrt(m.tickLower), _sqrt(m.tickUpper));
-        uint256 a0 = m.idle0 + (p < h ? SqrtPriceMath.getAmount0Delta(p > l ? p : l, h, m.liquidity, false) : 0);
-        uint256 a1 = m.idle1 + (p > l ? SqrtPriceMath.getAmount1Delta(l, p < h ? p : h, m.liquidity, false) : 0);
-        uint256 most = LiquidityAmounts.getLiquidityForAmounts(p, _sqrt(lo), _sqrt(hi), a0, a1) * 999 / 1000;
-        uint256 step = uint256(m.liquidity) * 10_500 / 10_000; // growth is capped at 5% per TWAP window
-        return uint128(most < step ? most : step);
     }
 
     function _settleCleanWithKeeper() internal {
@@ -413,7 +287,7 @@ contract LeashReauditTest is Test, Deployers {
     /// A treasury that sizes the anchor at 10% of value and the depth floor at 25e18 (both plausible) makes the same
     /// drag-and-extract profitable at 12s blocks; the manager stays clean and keeps its bond.
     function test_R4_dragProfitableWithThinnerAnchorAndFloor() public {
-        key = PoolKey(currency0, currency1, LPFeeLibrary.DYNAMIC_FEE_FLAG, 30, IHooks(address(leash)));
+        key = _key(30);
         Terms memory t = _terms();
         (t.anchorLiquidity, t.minLiquidity) = (10e18, 25e18);
         vm.expectRevert(Leash.ThinAnchor.selector); // fixed: the anchor must hold ~20% of the deposit

@@ -229,7 +229,7 @@ Only measured values. Sources: `forge build --sizes`, `forge test`, `forge cover
 | Runtime bytecode | Leash **24,566 bytes**, 10 under the EIP-170 limit of 24,576; `LeashOracle` library 4,282 bytes |
 | Tests | **101 passed**, 0 failed, 0 skipped, in 8 suites: unit 45, paths 16, fuzz 12, audit 13, re-audit 8, invariants 3, deploy 2, keeper 2 |
 | Invariants | 3: the ledger matches balances; managers gain only their pay; bonds and balances are conserved (after every claim the hook holds exactly idle + fees + the posted bond, and the keeper is owed exactly its bounties). 128 runs × 100 calls each |
-| Coverage | `src/Leash.sol` and `src/LeashOracle.sol`: 100% of lines, statements, branches and functions (`forge coverage`) |
+| Coverage | `src/Leash.sol` and `src/LeashOracle.sol`: 100% of lines, statements, branches and functions ([snapshot below](#test-coverage)) |
 | `close` with 104 unsettled epochs | **8,613,731 gas** (EIP-7825 cap: 16,777,216) |
 | First swap after a quiet gap over 104 epochs | **2,582,947 gas** (about 23k per epoch booked) |
 | Oracle | 1,024 observations; about 17 minutes on 1-second blocks swapped every block |
@@ -246,6 +246,30 @@ Only measured values. Sources: `forge build --sizes`, `forge test`, `forge cover
 | Informed manager at a stale price (High-1) | Treasury's extra loss **0.54** on a 10% jump, **5.28** on a 35% jump, of a 200-token inventory |
 | One-tick veto (Medium-1) | **0** repairs vetoed; 420 s out of 4,320 allowed |
 | Volatility against an honest manager (Low-1) | 5,880 s out against 4,320 allowed: loses **3.61** of a 10-token bond (36%), not fired |
+
+### Test coverage
+
+`forge coverage --report summary` (forge 1.5.1), 101 tests, on commit `5b42903`:
+
+| File | % Lines | % Statements | % Branches | % Funcs |
+|---|---|---|---|---|
+| **`src/Leash.sol`** | **100.00%** (303/303) | **100.00%** (431/431) | **100.00%** (50/50) | **100.00%** (43/43) |
+| **`src/LeashOracle.sol`** | **100.00%** (42/42) | **100.00%** (63/63) | **100.00%** (11/11) | **100.00%** (4/4) |
+| `src/utils/BaseHook.sol` | 21.67% (13/60) | 21.15% (11/52) | 0.00% (0/10) | 22.73% (5/22) |
+| `script/HookMiner.sol` | 88.89% (8/9) | 91.67% (11/12) | 100.00% (1/1) | 100.00% (1/1) |
+| `script/Settle.s.sol` | 66.67% (28/42) | 71.43% (40/56) | 63.64% (7/11) | 50.00% (1/2) |
+| `script/Local.s.sol` | 62.63% (62/99) | 67.68% (67/99) | 0.00% (0/2) | 66.67% (10/15) |
+| `script/DeployLeash.s.sol` | 28.21% (11/39) | 32.50% (13/40) | 22.22% (4/18) | 20.00% (1/5) |
+| `script/Demo.s.sol` | 0.00% (0/37) | 0.00% (0/44) | 0.00% (0/8) | 0.00% (0/2) |
+| `script/Tokens.s.sol` | 0.00% (0/25) | 0.00% (0/31) | 100.00% (0/0) | 0.00% (0/2) |
+| `test/utils/LeashBase.sol` | 100.00% (102/102) | 100.00% (109/109) | 100.00% (4/4) | 100.00% (24/24) |
+| `test/fuzz/LeashInvariant.t.sol` | 100.00% (59/59) | 100.00% (71/71) | 100.00% (9/9) | 100.00% (12/12) |
+| Total | 76.87% (628/817) | 80.95% (816/1008) | 69.35% (86/124) | 76.52% (101/132) |
+
+The two contracts that hold money are fully covered. The rest of the total is code outside them:
+
+- **`BaseHook.sol`:** the uncovered part is the stubs for the hook callbacks Leash doesn't enable. Each one only reverts `HookNotImplemented`. The PoolManager never calls them, because the hook's address bits don't enable them.
+- **The scripts:** they run against real chains rather than in `forge test`. `Demo.s.sol` runs in `./scripts/demo.sh`, and `Tokens.s.sol` and `DeployLeash.s.sol` in testnet deploys. The suites run only the parts of `Local.s.sol` and `Settle.s.sol` that they test.
 
 ## Deployment addresses
 

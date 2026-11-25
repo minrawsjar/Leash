@@ -283,7 +283,7 @@ No DOM, so `verify.ts` imports it under plain `node`.
 
 ### `wallet.ts`
 
-`useWallet()` over `window.ethereum`. On mount it reads `eth_accounts` and `eth_chainId` without prompting and follows `accountsChanged` and `chainChanged`. `connect()` asks for accounts. `ctx(net)` asks for accounts if needed, switches the wallet to the network (adding it if the wallet does not know it), and returns a viem wallet client on that chain with the shared public client. With no injected wallet it says so: "No browser wallet found. Install one (MetaMask, Rabby, …) to sign transactions."
+`useWallet()` over `window.ethereum`. On mount it reads `eth_accounts` and `eth_chainId` without prompting and follows `accountsChanged` and `chainChanged`. `connect()` asks for accounts. `disconnect()` forgets the account, asks the wallet to revoke the site's access (`wallet_revokePermissions`, EIP-2255; a no-op where unsupported) and sets `leash.disconnected` in `localStorage`, so a reload or an `accountsChanged` doesn't reconnect silently; `connect()` (or signing anything) clears it. In the top bar the address chip opens a menu: Copy address, View on explorer, Disconnect. `ctx(net)` asks for accounts if needed, switches the wallet to the network (adding it if the wallet does not know it), and returns a viem wallet client on that chain with the shared public client. With no injected wallet it says so: "No browser wallet found. Install one (MetaMask, Rabby, …) to sign transactions."
 
 ### `ui.tsx`
 

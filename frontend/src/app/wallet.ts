@@ -7,7 +7,13 @@ import type { Ctx } from './actions.ts';
 
 declare global { interface Window { ethereum?: EIP1193Provider } }
 
-export type Wallet = { account: Address | null; chainId: number | null; connect: () => Promise<void>; ctx: (n: Net) => Promise<Ctx> };
+export type Wallet = { account: Address | null; chainId: number | null; connect: () => Promise<void>; disconnect: () => void; ctx: (n: Net) => Promise<Ctx> };
+
+// Injected wallets have no standard "disconnect": eth_accounts keeps returning the account to a site it trusts. So the
+// app remembers a disconnect itself (and asks the wallet to revoke where it can) until the person connects again.
+const OFF = 'leash.disconnected';
+const isOff = () => { try { return localStorage.getItem(OFF) === '1'; } catch { return false; } };
+const setOff = (v: boolean) => { try { if (v) localStorage.setItem(OFF, '1'); else localStorage.removeItem(OFF); } catch { /* private mode */ } };
 
 export function useWallet(): Wallet {
   const [account, setAccount] = useState<Address | null>(null);
@@ -16,7 +22,7 @@ export function useWallet(): Wallet {
 
   useEffect(() => {
     if (!eth) return;
-    const onAcc = (a: string[]) => setAccount(a[0] ? getAddress(a[0]) : null);
+    const onAcc = (a: string[]) => setAccount(a[0] && !isOff() ? getAddress(a[0]) : null);
     const onChain = (c: string) => setChainId(Number(c));
     eth.request({ method: 'eth_accounts' }).then(onAcc).catch(() => {});
     eth.request({ method: 'eth_chainId' }).then(onChain).catch(() => {});
@@ -28,13 +34,21 @@ export function useWallet(): Wallet {
   async function connect() {
     if (!eth) throw new Error('No browser wallet found. Install one (MetaMask, Rabby, …) to sign transactions.');
     const a = await eth.request({ method: 'eth_requestAccounts' });
+    setOff(false);
     setAccount(a[0] ? getAddress(a[0]) : null);
+  }
+
+  function disconnect() {
+    setOff(true);
+    setAccount(null);
+    // MetaMask and others that implement EIP-2255 drop the site's access too; elsewhere this is a no-op.
+    eth?.request({ method: 'wallet_revokePermissions' as never, params: [{ eth_accounts: {} }] as never }).catch(() => {});
   }
 
   async function ctx(n: Net): Promise<Ctx> {
     if (!eth) throw new Error('No browser wallet found. Install one (MetaMask, Rabby, …) to sign transactions.');
     let acc = account;
-    if (!acc) { const a = await eth.request({ method: 'eth_requestAccounts' }); acc = getAddress(a[0]); setAccount(acc); }
+    if (!acc) { const a = await eth.request({ method: 'eth_requestAccounts' }); acc = getAddress(a[0]); setOff(false); setAccount(acc); }
     const current = Number(await eth.request({ method: 'eth_chainId' }));
     if (current !== n.id) {
       try {
@@ -51,5 +65,5 @@ export function useWallet(): Wallet {
     return { pub: client(n), wallet, account: acc, leash: n.dep.leash };
   }
 
-  return { account, chainId, connect, ctx };
+  return { account, chainId, connect, disconnect, ctx };
 }

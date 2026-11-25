@@ -2,7 +2,7 @@
 import { Mark } from '../Mark';
 import { ThemeToggle } from '../ThemeToggle';
 import { useEffect, useState } from 'react';
-import type { Hex } from 'viem';
+import type { Address, Hex } from 'viem';
 import { NETS, short, type Net } from './chain.ts';
 import { useWallet } from './wallet.ts';
 import { AppCtx } from './ui.tsx';
@@ -24,6 +24,29 @@ function useHash() {
   const [h, setH] = useState(location.hash);
   useEffect(() => { const f = () => { setH(location.hash); window.scrollTo(0, 0); }; addEventListener('hashchange', f); return () => removeEventListener('hashchange', f); }, []);
   return h.replace(/^#\/?/, '').split('/').filter(Boolean);
+}
+
+/** The address chip; it opens a native popover menu (Esc and click-outside close it): copy, explorer, disconnect. */
+function Account({ address, warn, explorer, onDisconnect }: { address: Address; warn: string; explorer: string; onDisconnect: () => void }) {
+  const [copied, setCopied] = useState(false);
+  const menu = () => document.getElementById('acct-menu') as HTMLElement & { hidePopover(): void } | null;
+  const place = (b: HTMLElement) => {
+    const m = menu(); if (!m) return;
+    const r = b.getBoundingClientRect();
+    m.style.top = `${r.bottom + 8}px`;
+    m.style.right = `${Math.max(16, document.documentElement.clientWidth - r.right)}px`;
+  };
+  return (
+    <>
+      <button type="button" className={`acct ${warn ? 'warn' : ''}`} popoverTarget="acct-menu" title={warn || address} aria-haspopup="menu" onClick={(e) => place(e.currentTarget)}>{short(address)}</button>
+      <div id="acct-menu" popover="auto" className="tip acct-menu" role="menu">
+        <b className="mono">{short(address)}</b>
+        <button type="button" role="menuitem" onClick={() => { navigator.clipboard?.writeText(address).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); }, () => {}); }}>{copied ? 'Copied' : 'Copy address'}</button>
+        {explorer && <a role="menuitem" href={`${explorer}/address/${address}`} target="_blank" rel="noreferrer">View on explorer</a>}
+        <button type="button" role="menuitem" className="danger" onClick={() => { menu()?.hidePopover(); onDisconnect(); }}>Disconnect</button>
+      </div>
+    </>
+  );
 }
 
 export function App() {
@@ -62,7 +85,7 @@ export function App() {
                 </select>
               </label>
               {wallet.account
-                ? <span className={`acct ${wrongChain ? 'warn' : ''}`} title={wrongChain ? `Wallet is on chain ${wallet.chainId}; it will be asked to switch when you sign` : wallet.account}>{short(wallet.account)}</span>
+                ? <Account address={wallet.account} warn={wrongChain ? `Wallet is on chain ${wallet.chainId}; it will be asked to switch when you sign` : ''} explorer={net.explorer} onDisconnect={wallet.disconnect} />
                 : <button type="button" className="btn primary sm" onClick={() => wallet.connect().catch((e) => setConnErr(e.message))}>Connect</button>}
             </div>
           </div>

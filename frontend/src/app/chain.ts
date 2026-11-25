@@ -28,7 +28,7 @@ export type Deployment = { chainId: number; leash: Address; poolManager: Address
 export type Net = { id: number; name: string; short: string; rpc: string; rpcs?: string[]; explorer: string; logsApi?: string; dep: Deployment };
 
 export const NETS: Record<number, Net> = {
-  1301: { id: 1301, name: 'Unichain Sepolia', short: 'Unichain', rpc: 'https://sepolia.unichain.org', rpcs: [import.meta.env?.VITE_UNICHAIN_RPC, 'https://unichain-sepolia-rpc.publicnode.com', 'https://unichain-sepolia.drpc.org', 'https://sepolia.unichain.org'].filter(Boolean) as string[], explorer: 'https://unichain-sepolia.blockscout.com', logsApi: 'https://unichain-sepolia.blockscout.com/api', dep: { ...dep1301, ...tok1301 } as Deployment },
+  1301: { id: 1301, name: 'Unichain Sepolia', short: 'Unichain', rpc: 'https://sepolia.unichain.org', rpcs: [import.meta.env?.VITE_UNICHAIN_RPC, 'https://unichain-sepolia-rpc.publicnode.com', 'https://unichain-sepolia.drpc.org', 'https://sepolia.unichain.org'].filter(Boolean) as string[], explorer: 'https://unichain-sepolia.blockscout.com', logsApi: 'https://unichain-sepolia.blockscout.com/api', dep: { ...dep1301, ...tok1301, swapRouter: '0x9140a78c1a137c7ff1c151ec8231272af78a99a4' } as Deployment }, // swapRouter: Uniswap's PoolSwapTest, on the same PoolManager
   31337: { id: 31337, name: 'Local anvil', short: 'Local', rpc: 'http://127.0.0.1:8545', explorer: '', dep: dep31337 as Deployment },
 };
 export const viemChain = (n: Net) => defineChain({
@@ -123,6 +123,35 @@ export function liquidityFor(sp: number, lo: number, hi: number, x: number, y: n
   return Math.min((x * sp * b) / (b - sp), y / (sp - a));
 }
 export const tickOfRaw = (raw: number) => Math.floor(Math.log(raw) / Math.log(1.0001));
+
+/** The hook's fee for a swap now: the set fee plus 10 pips per tick spot sits beyond 10 ticks from the TWAP, capped. */
+export function swapFeeNow(s: { spot: number; twap: number; lpFee: number; m: { terms: { maxFee: number } } }): number {
+  const gap = Math.abs(s.spot - s.twap);
+  return gap > 10 ? Math.min(s.m.terms.maxFee, s.lpFee + (gap - 10) * 10) : s.lpFee;
+}
+
+/** An exact-input swap through the pool, estimated (raw units, floats: display only). Only the hook can add liquidity,
+ *  so the pool holds exactly the manager's range and the full-range anchor; this walks the price across both. */
+export function swapPreview(s: Snapshot, zeroForOne: boolean, amountIn: number) {
+  const ts = s.key.tickSpacing, fee = swapFeeNow(s);
+  const ranges = ([[s.m.tickLower, s.m.tickUpper, s.m.liquidity], [minTick(ts), maxTick(ts), s.m.closed ? 0n : s.m.terms.anchorLiquidity]] as const)
+    .filter(([, , l]) => l > 0n).map(([lo, hi, l]) => [sqrtAt(lo), sqrtAt(hi), Number(l)]);
+  const edges = ranges.flatMap(([a, b]) => [a, b]);
+  let p = Number(s.sqrtPriceX96) / 2 ** 96, left = amountIn * (1 - fee / 1e6), out = 0;
+  for (let i = 0; i < 8 && left > 0; i++) {
+    const ahead = edges.filter((e) => (zeroForOne ? e < p : e > p));
+    if (!ahead.length) break;
+    const next = zeroForOne ? Math.max(...ahead) : Math.min(...ahead), mid = (p + next) / 2;
+    const L = ranges.reduce((a, [lo, hi, l]) => a + (mid >= lo && mid < hi ? l : 0), 0);
+    if (!L) break; // past every position: the rest finds no liquidity
+    const need = zeroForOne ? L * (1 / next - 1 / p) : L * (next - p);
+    const to = left >= need ? next : zeroForOne ? 1 / (1 / p + left / L) : p + left / L;
+    out += zeroForOne ? L * (p - to) : L * (1 / p - 1 / to);
+    left = left >= need ? left - need : 0;
+    p = to;
+  }
+  return { out, fee, unfilled: left > amountIn * 1e-9, tickAfter: Math.floor(Math.log(p * p) / Math.log(1.0001)) };
+}
 
 /** Slot0 straight from PoolManager storage (StateLibrary: pools mapping at slot 6). */
 export async function slot0(n: Net, id: Hex, blockNumber?: bigint) {

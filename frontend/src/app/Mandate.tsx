@@ -8,10 +8,11 @@ import {
 } from './chain.ts';
 import * as act from './actions.ts';
 import { Chart, type Sample } from './Chart.tsx';
+import { Trade } from './Trade.tsx';
 import { STATUS } from './Index.tsx';
 import { Act, Check, Dot, Stat, Ticker, TxLink, useApp, useClock, usePoll } from './ui.tsx';
 
-const TABS = [['dashboard', 'Dashboard'], ['auction', 'Auction'], ['manage', 'Manager console'], ['settle', 'Settle & claim']] as const;
+const TABS = [['dashboard', 'Dashboard'], ['auction', 'Auction'], ['manage', 'Manager console'], ['trade', 'Trade'], ['settle', 'Settle & claim']] as const;
 
 export function MandatePage({ id, tab, refresh }: { id: Hex; tab: string; refresh: number }) {
   const { net } = useApp();
@@ -47,6 +48,7 @@ export function MandatePage({ id, tab, refresh }: { id: Hex; tab: string; refres
       {snapQ.err && <p className="banner" role="alert">Last refresh failed: {snapQ.err}</p>}
       {tab === 'auction' ? <Auction s={s} logs={logs} />
         : tab === 'manage' ? <Manage s={s} />
+        : tab === 'trade' ? <Trade s={s} />
         : tab === 'settle' ? <Settle s={s} records={recQ.data ?? []} />
         : <Dashboard s={s} samples={samples} records={recQ.data ?? []} logs={logs} />}
     </>
@@ -147,7 +149,7 @@ function Dashboard({ s, samples, records, logs }: { s: Snapshot; samples: Sample
           <Row k="Idle (outside the pool)" v={`${fmt(s.m.terms.stableIs0 ? s.m.idle1 : s.m.idle0, token.decimals)} ${token.symbol} · ${fmt(s.m.terms.stableIs0 ? s.m.idle0 : s.m.idle1, stable.decimals)} ${stable.symbol}`} />
           <Row k="Managed position" v={`${fmtNum(ledger.pos[0] / 10 ** token.decimals)} ${token.symbol} · ${fmtNum(ledger.pos[1] / 10 ** stable.decimals)} ${stable.symbol}`} />
           <Row k="Anchor (full range, fixed)" v={`${fmtNum(ledger.anc[0] / 10 ** token.decimals)} ${token.symbol} · ${fmtNum(ledger.anc[1] / 10 ** stable.decimals)} ${stable.symbol}`} />
-          <Row k="Fees collected, unsettled" v={`${fmt(s.m.terms.stableIs0 ? s.m.fees1 : s.m.fees0, token.decimals, 4)} ${token.symbol} · ${fmt(s.m.terms.stableIs0 ? s.m.fees0 : s.m.fees1, stable.decimals, 4)} ${stable.symbol}`} />
+          <Row k="Fees collected (at rebalance or settle)" v={`${fmt(s.m.terms.stableIs0 ? s.m.fees1 : s.m.fees0, token.decimals, 4)} ${token.symbol} · ${fmt(s.m.terms.stableIs0 ? s.m.fees0 : s.m.fees1, stable.decimals, 4)} ${stable.symbol}`} />
           <Row k="Liquidity · floor" v={<span className="mono">{fmtLiq(s.m.liquidity)} · {fmtLiq(t.minLiquidity)}</span>} />
           <Row k="Inventory value" v={<b><Ticker value={ledger.value} format={(v) => fmtNum(v)} /> {stable.symbol}</b>} />
         </dl>

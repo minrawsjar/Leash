@@ -2,16 +2,16 @@
 // browser (injected wallet) and from verify.ts (anvil test key). Each simulates first: a revert never costs gas
 // and comes back as plain words (explain).
 import {
-  BaseError, ContractFunctionRevertedError, UserRejectedRequestError, decodeErrorResult, erc20Abi, maxUint256,
-  type Address, type Hex, type PublicClient, type WalletClient,
+  BaseError, ContractFunctionRevertedError, UserRejectedRequestError, decodeErrorResult, erc20Abi, maxUint256, parseAbi,
+  type Abi, type Address, type Hex, type PublicClient, type WalletClient,
 } from 'viem';
 import { leashAbi, type Key, type Terms } from './chain.ts';
 
 export type Ctx = { pub: PublicClient; wallet: WalletClient; account: Address; leash: Address };
 export type Position = { tickLower: number; tickUpper: number; liquidity: bigint };
 
-async function call(ctx: Ctx, functionName: string, args: unknown[], afterApprove = false): Promise<Hex> {
-  const sim = () => ctx.pub.simulateContract({ address: ctx.leash, abi: leashAbi, functionName, args, account: ctx.account });
+async function call(ctx: Ctx, functionName: string, args: unknown[], afterApprove = false, to: { address: Address; abi: Abi } = { address: ctx.leash, abi: leashAbi }): Promise<Hex> {
+  const sim = () => ctx.pub.simulateContract({ address: to.address, abi: to.abi, functionName, args, account: ctx.account });
   // Public RPCs sit behind load balancers: right after an approval lands, the node that answers the simulation can be a
   // block behind and still see the old allowance. Give it a few seconds before believing a transfer failure.
   let res: Awaited<ReturnType<typeof sim>> | undefined;
@@ -28,12 +28,12 @@ async function call(ctx: Ctx, functionName: string, args: unknown[], afterApprov
   return hash;
 }
 
-/** Approves `amount` of `tokenAddr` to Leash unless the allowance already covers it. */
-export async function approve(ctx: Ctx, tokenAddr: Address, amount: bigint): Promise<Hex | null> {
+/** Approves `amount` of `tokenAddr` to `spender` (Leash by default) unless the allowance already covers `need`. */
+export async function approve(ctx: Ctx, tokenAddr: Address, amount: bigint, spender: Address = ctx.leash, need = amount): Promise<Hex | null> {
   if (amount === 0n) return null;
-  const have = await ctx.pub.readContract({ address: tokenAddr, abi: erc20Abi, functionName: 'allowance', args: [ctx.account, ctx.leash] });
-  if (have >= amount) return null;
-  const { request } = await ctx.pub.simulateContract({ address: tokenAddr, abi: erc20Abi, functionName: 'approve', args: [ctx.leash, amount], account: ctx.account });
+  const have = await ctx.pub.readContract({ address: tokenAddr, abi: erc20Abi, functionName: 'allowance', args: [ctx.account, spender] });
+  if (have >= need) return null;
+  const { request } = await ctx.pub.simulateContract({ address: tokenAddr, abi: erc20Abi, functionName: 'approve', args: [spender, amount], account: ctx.account });
   const hash = await ctx.wallet.writeContract({ ...request, account: ctx.account, chain: ctx.wallet.chain } as never);
   await ctx.pub.waitForTransactionReceipt({ hash });
   return hash;
@@ -55,6 +55,26 @@ export const checkpoint = (ctx: Ctx, key: Key) => call(ctx, 'checkpoint', [key])
 export const settle = (ctx: Ctx, key: Key, epoch: number) => call(ctx, 'settle', [key, BigInt(epoch)]);
 export const close = (ctx: Ctx, key: Key) => call(ctx, 'close', [key]);
 export const claim = (ctx: Ctx, currency: Address) => call(ctx, 'claim', [currency]);
+
+// ---------------------------------------------------------------- trading (testnets: Uniswap's PoolSwapTest router, open-mint test tokens)
+const routerAbi = [...parseAbi([
+  'struct PoolKey { address currency0; address currency1; uint24 fee; int24 tickSpacing; address hooks; }',
+  'struct SwapParams { bool zeroForOne; int256 amountSpecified; uint160 sqrtPriceLimitX96; }',
+  'struct TestSettings { bool takeClaims; bool settleUsingBurn; }',
+  'function swap(PoolKey key, SwapParams params, TestSettings testSettings, bytes hookData) payable returns (int256)',
+]), ...(leashAbi as Abi).filter((x) => x.type === 'error')] as Abi;
+const MIN_SQRT = 4295128739n, MAX_SQRT = 1461446703485210103287273052203988822378723970342n;
+
+/** Exact-input swap. ponytail: no price limit (the app previews the result first); a real router needs one. The test
+ *  router is approved once for the maximum, so later trades in this token take one signature. */
+export async function swap(ctx: Ctx, router: Address, key: Key, zeroForOne: boolean, amountIn: bigint) {
+  const a = await approve(ctx, zeroForOne ? key.currency0 : key.currency1, maxUint256, router, amountIn);
+  const params = { zeroForOne, amountSpecified: -amountIn, sqrtPriceLimitX96: zeroForOne ? MIN_SQRT + 1n : MAX_SQRT - 1n };
+  return call(ctx, 'swap', [key, params, { takeClaims: false, settleUsingBurn: false }, '0x'], !!a, { address: router, abi: routerAbi });
+}
+/** solmate MockERC20's open mint: the testnet tokens are worth nothing, so anyone can take some. */
+export const mintTest = (ctx: Ctx, token: Address, amount: bigint) =>
+  call(ctx, 'mint', [ctx.account, amount], false, { address: token, abi: parseAbi(['function mint(address to, uint256 value)']) });
 
 // ---------------------------------------------------------------- reverts in plain words
 const WORDS: Record<string, string> = {

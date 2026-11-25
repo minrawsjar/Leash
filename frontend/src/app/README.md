@@ -17,6 +17,7 @@ The app is one page at `/app`. Everything after it is a hash route, read by `use
 | `#/m/<poolId>/dashboard` | Stats, live chart, compliance and glide bar, ledger, epochs, activity, terms | Everyone |
 | `#/m/<poolId>/auction` | Leading bond, the bid form while open (or the result), bid history, claimable refunds | Managers |
 | `#/m/<poolId>/manage` | **Manager console**: range picker, size, every rebalance guard as a check, the fee | The hired manager |
+| `#/m/<poolId>/trade` | **Trade**: swap through the pool with a live preview (amount out, fee, spot after, out-of-range warning), "Push out of range", test-token mint | Anyone; the testnet's order flow |
 | `#/m/<poolId>/settle` | **Settle and claim**: checkpoint, settle the next epoch, close, claim, track records | Keepers, treasury, everyone owed |
 
 An unknown tab renders the dashboard. A pool id with no `MandateCreated` event on the chosen network says so ("No mandate with pool id … on Unichain Sepolia"). Changing the hash scrolls to the top.
@@ -106,6 +107,17 @@ The wallet is asked to switch to the chosen network when it signs (`wallet_switc
 | Last rebalance, last growth | `mandate(id).lastRebalance`, `lastGrow` |
 | Fee now | slot0's `lpFee` |
 
+### Trade (`#/m/<id>/trade`)
+
+| On screen | Source |
+|---|---|
+| You receive, spot after | `swapPreview()` in `chain.ts`: an exact-input swap walked across the pool's only two positions (the manager's range and the full-range anchor; `HookOnly` keeps anyone else out), from slot0's `sqrtPriceX96`. Matches the fill to the unit on the local chain |
+| Fee on this trade | `swapFeeNow()`: slot0's `lpFee` plus 10 pips per tick spot sits beyond 10 ticks from the TWAP, capped at `maxFee`, the same rule as `_beforeSwap` |
+| Manager's range | `mandate(id).tickLower`, `tickUpper` as prices |
+| Your balances | `balanceOf(you)` on both tokens |
+
+Swaps go through Uniswap's `PoolSwapTest` (`Deployment.swapRouter`: `0x9140…99a4` on Unichain Sepolia, the local script's own on anvil), approved once for the maximum per token. "Get test tokens" calls the tokens' open `mint` and shows only when the pool's tokens are the network's test tokens. The first trade after bidding closes runs `checkpoint` first: the contract gives fees earned before the epochs to the treasury at the first checkpoint, rebalance or settle after `auctionEnd`, and a swap doesn't trigger it, so without a keeper the epoch's own fees would be swept as pre-hire.
+
 ### Settle and claim (`#/m/<id>/settle`)
 
 | On screen | Source |
@@ -146,7 +158,7 @@ The wallet is asked to switch to the chosen network when it signs (`wallet_switc
 1. A module-level cache, `scanned`, keeps per network the raw logs already read and the last block scanned (`to`). The first call starts at `deployments/<id>.json`'s `block`.
 2. Each call reads the head block and asks only for `[to + 1, head]` with one `eth_getLogs` filtered to the hook's address.
 3. If the node refuses the range (many public nodes cap it), it steps through the same range 1,000 blocks at a time.
-4. The new logs are appended, `to` moves to the head, and the whole list is decoded with `parseEventLogs(…, strict: false)`.
+4. The new logs are appended and the whole list is decoded with `parseEventLogs(…, strict: false)`. `to` moves only to 64 blocks behind the head, and only logs up to it are cached: the fallback RPCs disagree by a few blocks, and a node behind the one that gave the head returns nothing for the newest blocks, so those are read again next poll. Without this a mandate posted moments ago could vanish until a reload.
 
 So the first load scans the hook's history once, and every later poll costs a block-number call and one small `getLogs`. Blockscout's API is not used for logs: it rate-limits and was being read as "no events". `Net.logsApi` is still set on 1301, but only as the flag that selects the slower polling below.
 
@@ -218,12 +230,17 @@ It also exports `STATUS`, the label for each status, used by the mandate page.
 
 ### `Mandate.tsx`
 
-One mandate, four tabs. `MandatePage` polls the log (to find the pool's key from `MandateCreated`), the snapshot, and the epoch records, then renders the header (pair, status, treasury, manager, "(you)" when it is the connected account) and the tab.
+One mandate, five tabs. `MandatePage` polls the log (to find the pool's key from `MandateCreated`), the snapshot, and the epoch records, then renders the header (pair, status, treasury, manager, "(you)" when it is the connected account) and the tab.
 
 - **Dashboard:** five stats (spot, TWAP, bond, fee, countdown), the chart, compliance now with the glide bar, the ledger, the epoch timeline (each epoch's in and out seconds as a bar with the uptime cut line; Clean, Breached, Ended · settle, In progress, Upcoming), the activity feed and the terms. `useSamples` keeps up to 400 chart samples and backfills 40 once per mandate (`backfill`: every 30 blocks when there is room, so about the last 20 minutes on 1-second blocks; a block that a public node cannot serve historically is skipped).
 - **Auction:** the leading bond with the leader's track record; while open, the bid form with "Leader + 1" (or "Minimum") and "+10%" presets and a live reason when the amount is too low; once closed, the result. Bid history, who can claim what, and a Claim button for your own balance.
 - **Manager console:** a range picker drawn around the TWAP (the must-cover band, the max-gap band, the current range, the new range, spot and TWAP marks); a half-width slider snapped to the tick spacing, or exact lower and upper ticks; size as a percentage of the current position, with Floor, Keep size and +5% presets that pin the exact bigint so they land on the contract's bounds. Every guard `rebalance` applies is a live check (active, connected as the manager, spot–TWAP gap, ticks on the grid, covers TWAP ± minHalfWidth, spot strictly inside, at or above the floor, fits the inventory; when growing: spot within 2 ticks, at most +5%, a TWAP window since the last growth). The button stays disabled with the first failing check as its reason. The fee card takes a percentage or a slider inside the band.
+- **Trade:** see `Trade.tsx`.
 - **Settle and claim:** Checkpoint (anyone), Settle the next epoch (anyone, in order, with the epoch's uptime so far), Close (treasury only; moved to the top once it is the next thing to do), Claim per token, and the manager's track record.
+
+### `Trade.tsx`
+
+The Trade tab: Buy or Sell the token, an amount with presets, Max and "Push out of range" (bisects `swapPreview` for the smallest trade that ends outside the manager's range, plus 2%), the preview rows, a warning when the trade leaves the range, and Swap. Beside it the wallet's balances, "Get test tokens" (100,000 of each, two signatures) and what a trade does to the treasury and the manager.
 
 ### `Create.tsx`
 

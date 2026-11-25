@@ -15,8 +15,10 @@ const TABS = [['dashboard', 'Dashboard'], ['auction', 'Auction'], ['manage', 'Ma
 
 export function MandatePage({ id, tab, refresh }: { id: Hex; tab: string; refresh: number }) {
   const { net } = useApp();
-  const logsQ = usePoll(() => leashLogs(net), net.logsApi ? 20_000 : 5_000, [net.id, refresh]);
+  const [missing, setMissing] = useState(false); // not in the logs (yet): look again every few seconds, not every 20
+  const logsQ = usePoll(() => leashLogs(net), missing ? 3_000 : net.logsApi ? 20_000 : 5_000, [net.id, refresh, missing]);
   const entry = logsQ.data && mandatesFrom(logsQ.data).find((x) => x.id.toLowerCase() === id.toLowerCase());
+  useEffect(() => setMissing(!!logsQ.data && !entry), [logsQ.data, !!entry]);
   const snapQ = usePoll(() => (entry ? snapshot(net, entry.id, entry.key) : Promise.resolve(undefined)), net.rpcs ? 6_000 : 3_000, [entry?.id, refresh]);
   const s = snapQ.data;
   const recQ = usePoll(() => (s ? epochRecords(net, s.id, s.m.terms.epochs) : Promise.resolve([])), 6_000, [s?.id, s?.m.settled, refresh]);
@@ -24,7 +26,7 @@ export function MandatePage({ id, tab, refresh }: { id: Hex; tab: string; refres
   const samples = useSamples(net, s);
 
   if (logsQ.err) return <p className="banner" role="alert">Can't read the chain: {logsQ.err}</p>;
-  if (logsQ.data && !entry) return <p className="empty card">No mandate with pool id <span className="mono">{short(id)}</span> on {net.name}.</p>;
+  if (logsQ.data && !entry) return <p className="empty card">No mandate with pool id <span className="mono">{short(id)}</span> on {net.name} yet. Still looking: one posted moments ago appears once the network has indexed its block.</p>;
   if (!s) return <p className="empty">{snapQ.err || 'Reading the mandate…'}</p>;
 
   const token = s.tok[s.m.terms.stableIs0 ? 1 : 0], stable = s.tok[s.m.terms.stableIs0 ? 0 : 1];

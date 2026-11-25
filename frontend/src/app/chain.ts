@@ -137,6 +137,7 @@ export async function slot0(n: Net, id: Hex, blockNumber?: bigint) {
 type RawLog = { address: Address; topics: Hex[]; data: Hex; blockNumber: bigint | Hex | null; transactionHash: Hex | null; logIndex: number | Hex | null };
 // Logs already scanned, per network: each poll asks only for blocks after `to`.
 const scanned = new Map<number, { to: bigint; logs: RawLog[] }>();
+const MARGIN = 64n;
 
 /** Every Leash event since deployment, over RPC. Scans incrementally; if a node refuses a wide range, steps 1000 blocks. */
 export async function leashLogs(n: Net): Promise<LeashLog[]> {
@@ -156,7 +157,11 @@ export async function leashLogs(n: Net): Promise<LeashLog[]> {
     }
   }
   const raw = [...seen.logs, ...got];
-  scanned.set(n.id, { to: head, logs: raw });
+  // The fallback RPCs disagree by a few blocks: the node that answered getLogs can be behind the one that gave `head`
+  // and return nothing for its newest blocks. So only blocks MARGIN behind the head count as scanned; the rest are
+  // read again next poll (a mandate posted just now otherwise vanished until a reload).
+  const to = head - MARGIN > seen.to ? head - MARGIN : seen.to;
+  scanned.set(n.id, { to, logs: [...seen.logs, ...got.filter((l) => BigInt(l.blockNumber!) <= to)] });
   const parsed = parseEventLogs({ abi: leashAbi, logs: raw as never, strict: false });
   return parsed.map((l) => ({
     eventName: l.eventName as string, args: l.args as Record<string, unknown>, blockNumber: BigInt(l.blockNumber as bigint),

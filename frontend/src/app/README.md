@@ -116,7 +116,7 @@ The wallet is asked to switch to the chosen network when it signs (`wallet_switc
 | Manager's range | `mandate(id).tickLower`, `tickUpper` as prices |
 | Your balances | `balanceOf(you)` on both tokens |
 
-Swaps go through Uniswap's `PoolSwapTest` (`Deployment.swapRouter`: `0x9140…99a4` on Unichain Sepolia, the local script's own on anvil), approved once for the maximum per token. "Get test tokens" calls the tokens' open `mint` and shows only when the pool's tokens are the network's test tokens. The first trade after bidding closes runs `checkpoint` first: the contract gives fees earned before the epochs to the treasury at the first checkpoint, rebalance or settle after `auctionEnd`, and a swap doesn't trigger it, so without a keeper the epoch's own fees would be swept as pre-hire.
+Swaps go through Uniswap's `PoolSwapTest` (`Deployment.swapRouter`: `0x9140…99a4` on Unichain Sepolia, the local script's own on anvil), approved once for the maximum per token. "Get test tokens" calls the tokens' open `mint` and shows only when the pool's tokens are the network's test tokens.
 
 ### Settle and claim (`#/m/<id>/settle`)
 

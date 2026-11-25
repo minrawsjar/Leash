@@ -68,6 +68,13 @@ struct Mandate {
     Terms terms;
 }
 
+/// Measured in the first beforeSwap after the auction, while the sweep is still pending (see _sweep).
+struct PreHire {
+    uint128 fees0;
+    uint128 fees1;
+    bool taken;
+}
+
 struct TrackRecord {
     uint32 clean;
     uint32 breached;
@@ -151,6 +158,8 @@ contract Leash is BaseHook, IUnlockCallback {
     mapping(PoolId => Mandate) internal _mandates;
     mapping(PoolId => Oracle) internal _oracles;
     mapping(PoolId => mapping(uint256 => EpochRecord)) internal _epochs;
+    /// Fees the managed position had earned by the first swap after bidding closed, if a swap came before the sweep.
+    mapping(PoolId => PreHire) internal _preHire;
     /// @notice Pull payments (outbid bonds, returned bonds, pay): owed[account][currency].
     mapping(address => mapping(Currency => uint256)) public owed;
     /// @notice Each manager's settled epochs, across all mandates.
@@ -188,6 +197,13 @@ contract Leash is BaseHook, IUnlockCallback {
         Oracle storage o = _oracles[id];
         LeashOracle.observe(o, tick);
         Mandate storage m = _mandates[id];
+        // The first swap after bidding closes, while the sweep is pending: what the managed position has earned so
+        // far is all pre-hire (fees accrue only in swaps), so measure it for _sweep before this swap adds more.
+        PreHire storage p = _preHire[id];
+        if (!m.swept && !p.taken && block.timestamp >= m.terms.auctionEnd) {
+            p.taken = true;
+            (p.fees0, p.fees1) = LeashOracle.pendingFees(poolManager, id, address(this), m.tickLower, m.tickUpper);
+        }
         _checkpoint(key, m);
         // This swap's fee: the manager's fee (slot0's stored lpFee, set by setFee in [minFee, maxFee]) plus
         // FEE_PIPS_PER_TICK for every tick spot sits beyond FEE_FREE_TICKS from the TWAP, capped at maxFee. Pushing
@@ -494,10 +510,22 @@ contract Leash is BaseHook, IUnlockCallback {
     /// collected after that are booked to epochs. ponytail: fees from swaps between auctionEnd and that call go to
     /// the treasury too (the manager is underpaid by managerFeeBps of them, never overpaid); a keeper calling
     /// checkpoint() at auctionEnd closes the gap.
+    /// Fees earned before the manager's first epoch go to the treasury. The sweep runs at the first checkpoint,
+    /// rebalance or settle after the auction; if a swap came first, its beforeSwap measured them (fees accrue only
+    /// in swaps, and the position can't change before the sweep), and the epoch keeps the rest of what is collected.
     function _sweep(PoolKey calldata key, Mandate storage m) internal {
         if (m.swept || block.timestamp < m.terms.auctionEnd) return;
         m.swept = true;
         (uint256 f0, uint256 f1) = _move(key, m, m.tickLower, m.tickUpper, m.liquidity);
+        PreHire storage p = _preHire[key.toId()];
+        if (p.taken) {
+            // Collected beyond the measured pre-hire fees: earned since the auction, booked to the first unsettled
+            // epoch (the earliest that can have earned it), as rebalance and settle book what they collect.
+            (uint256 k0, uint256 k1) = (f0 > p.fees0 ? f0 - p.fees0 : 0, f1 > p.fees1 ? f1 - p.fees1 : 0);
+            EpochRecord storage r = _epochs[key.toId()][m.settled];
+            (r.fees0, r.fees1) = (r.fees0 + uint128(k0), r.fees1 + uint128(k1));
+            (f0, f1) = (f0 - k0, f1 - k1);
+        }
         (m.fees0, m.fees1, m.idle0, m.idle1) = (m.fees0 - f0, m.fees1 - f1, m.idle0 + f0, m.idle1 + f1);
     }
 

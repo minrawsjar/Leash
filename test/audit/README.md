@@ -1,6 +1,6 @@
 # Audit: Every Finding, Its Attack, Its Fix and Its Test
 
-> **Foundry, Solidity 0.8.26. 20 tests passing (12 audit, 8 re-audit), measured with `forge test --match-path 'test/audit/*' -vv`. Against the hook deployed on Unichain Sepolia at [`0xbB07…6880`](https://unichain-sepolia.blockscout.com/address/0xbB07E2C8C163063C602A2D00ddc97d5FacE76880).**
+> **Foundry, Solidity 0.8.26. 20 tests passing (12 audit, 8 re-audit), measured with `forge test --match-path 'test/audit/*' -vv`. Against the hook deployed on Unichain Sepolia at [`0xA8e4…2880`](https://unichain-sepolia.blockscout.com/address/0xA8e4A5CECA23777aB7a6f07aE682845c891e2880).**
 
 Two review rounds were run against [`src/Leash.sol`](../../src/Leash.sol). The first (the audit) found 2 critical, 1 high, 2 medium and 1 low. The second (the re-audit) reviewed the fixes and found 1 high, 2 medium and 2 low. Every finding except the documentation fix (Low-2) started as a proof of concept that demonstrated the attack; after the fix, the same test was turned around to assert the attack fails. Where a fix refuses the original move, the test also runs the **strongest variant that is still legal** and measures that it loses. Where a finding is a limit that can only be bounded, not removed, the test asserts the measured damage stays inside a bound, so any regression fails.
 

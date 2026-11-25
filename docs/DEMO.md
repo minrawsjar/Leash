@@ -11,7 +11,7 @@
 | A mandate dashboard | Click any mandate in the explorer; keep its URL (`#/m/<poolId>/dashboard`) ready in a third tab |
 | Managers leaderboard | `#/managers` |
 | Terminal | Repo root, font at 18 pt or larger, about 110 columns wide. Run `./scripts/demo.sh` once beforehand so forge has compiled and the run takes about 40 s. Nothing may be listening on port 8545 |
-| Blockscout | [unichain-sepolia.blockscout.com/address/0xbB07E2C8C163063C602A2D00ddc97d5FacE76880](https://unichain-sepolia.blockscout.com/address/0xbB07E2C8C163063C602A2D00ddc97d5FacE76880), Contract tab, showing the verified source |
+| Blockscout | [unichain-sepolia.blockscout.com/address/0xA8e4A5CECA23777aB7a6f07aE682845c891e2880](https://unichain-sepolia.blockscout.com/address/0xA8e4A5CECA23777aB7a6f07aE682845c891e2880), Contract tab, showing the verified source |
 | Reference output | [`demo-output.txt`](demo-output.txt) is a full recorded run. Fee amounts move a little between runs, because anvil stamps blocks with the wall clock; the reverts, the clean epoch and the 33% slash come out the same every time |
 
 The terminal shot is the proof. Record it live, or replay a real run at 2x speed. Don't stage it.

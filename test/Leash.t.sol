@@ -679,6 +679,27 @@ contract LeashTest is Test, Deployers {
         _assertLedger();
     }
 
+    /// Same split when nobody checkpoints after the auction and the first touch is a swap: the hook measures the
+    /// pre-hire fees in that swap's beforeSwap, so the epoch's own fees are not swept to the treasury with them.
+    function test_settle_epochFeesCountWhenASwapComesFirst() public {
+        swap(key, true, -10e18, ZERO_BYTES); // 0.1 currency0 of fees, before anyone manages
+        vm.prank(alice);
+        leash.bid(key, 10e18);
+        vm.warp(auctionEnd);
+        swap(key, false, -10e18, ZERO_BYTES); // 0.1 currency1 of fees, on alice's watch, before any checkpoint
+        assertFalse(_m().swept);
+
+        uint256 idle0 = _m().idle0;
+        vm.warp(auctionEnd + 1 days);
+        leash.settle(key, 0);
+        EpochRecord memory e = leash.epochRecord(key.toId(), 0);
+        assertEq(e.fees0, 0, "pre-hire fees are not the epoch's");
+        assertApproxEqAbs(_m().idle0 - idle0, MANAGED_FEE, 2, "pre-hire fees swept into the treasury's inventory");
+        assertApproxEqAbs(e.fees1, MANAGED_FEE, 2, "the epoch's fees stay the epoch's");
+        assertEq(leash.owed(alice, currency1), uint256(e.fees1) * 3000 / 10_000);
+        _assertLedger();
+    }
+
     function test_settle_needsAManager() public {
         vm.warp(auctionEnd + 1 days);
         vm.expectRevert(Leash.NotActive.selector);

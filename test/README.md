@@ -126,6 +126,7 @@ forge test --match-test test_L1 -vv                           # close() gas with
 | `test_settle_breachSlashesBondAndFiresManager` | 22 h in, 2 h out: breach; bond 0, treasury owed 10e18, no pay, record 0/1; `Breached` on rebalance, setFee, settle; close at once; no bond back; hook ends at zero. |
 | `test_settle_oneBadBlockDoesNotBreach` | Out of range for one block and back: the epoch stays clean, bond intact. |
 | `test_settle_feesEarnedBeforeHireGoToTreasury` | An auction-period swap's fees are swept into idle, epoch 0 books only later fees, pay is 30% of those. |
+| `test_settle_epochFeesCountWhenASwapComesFirst` | The same, with no checkpoint after the auction: the first touch is a swap. Its `beforeSwap` measures the pre-hire fees, so the sweep at settle takes only those to idle and epoch 0 keeps the later swap's fees and pays 30% of them. Failed before the fix (epoch 0 booked 0). |
 | `test_settle_needsAManager` | `NotActive` with no bids. |
 
 ### Swaps and close

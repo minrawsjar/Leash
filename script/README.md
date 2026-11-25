@@ -64,7 +64,7 @@ A Uniswap v4 hook's permissions are not stored anywhere. The PoolManager reads t
 | `beforeAddLiquidity` | `BEFORE_ADD_LIQUIDITY_FLAG` | 11 | `0x0800` | Reverts `HookOnly`: only the hook may add liquidity |
 | `beforeSwap` | `BEFORE_SWAP_FLAG` | 7 | `0x0080` | Records the oracle observation and books compliance on every swap |
 
-`0x2000 | 0x0800 | 0x0080 = 0x2880`. Both deployed Leash addresses end in it: `0xbB07...6880` on Unichain Sepolia and `0x4607...e880` on anvil, and `0x6880 & 0x3FFF = 0xe880 & 0x3FFF = 0x2880`. The hook's own calls into the PoolManager skip its hooks, so `createMandate` and `rebalance` pass through the `HookOnly` reverts.
+`0x2000 | 0x0800 | 0x0080 = 0x2880`. Both deployed Leash addresses end in it: `0xA8e4...2880` on Unichain Sepolia and `0x0344...2880` on anvil. The hook's own calls into the PoolManager skip its hooks, so `createMandate` and `rebalance` pass through the `HookOnly` reverts.
 
 The search, step by step:
 
@@ -102,7 +102,7 @@ POOL_MANAGER=0x... forge script script/DeployLeash.s.sol --rpc-url <rpc> --broad
 
 A simulation without `--broadcast` still runs `vm.writeJson`, so it overwrites `deployments/<chainId>.json` with the simulated address and block. The address is deterministic (same factory, same init code, same salt), so it matches what a broadcast would deploy, unless that address is already taken, in which case the broadcast fails. Restore the file with `git checkout deployments/1301.json` if you only meant to look.
 
-The Unichain Sepolia deployment is `0xbB07E2C8C163063C602A2D00ddc97d5FacE76880`; see [`../deployments/README.md`](../deployments/README.md). To verify the source on Blockscout, add `--verify --verifier blockscout --verifier-url https://unichain-sepolia.blockscout.com/api/` to the broadcast command.
+The Unichain Sepolia deployment is `0xA8e4A5CECA23777aB7a6f07aE682845c891e2880`; see [`../deployments/README.md`](../deployments/README.md). To verify the source on Blockscout, add `--verify --verifier blockscout --verifier-url https://unichain-sepolia.blockscout.com/api/` to the broadcast command.
 
 ### HookMiner.sol
 

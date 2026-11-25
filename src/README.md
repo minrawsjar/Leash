@@ -20,7 +20,7 @@ From [`deployments/1301.json`](../deployments/1301.json) (deployed at block 68,6
 
 | Contract | Address |
 |---|---|
-| **Leash** (hook, source verified) | [`0xbB07E2C8C163063C602A2D00ddc97d5FacE76880`](https://unichain-sepolia.blockscout.com/address/0xbB07E2C8C163063C602A2D00ddc97d5FacE76880) |
+| **Leash** (hook, source verified) | [`0xA8e4A5CECA23777aB7a6f07aE682845c891e2880`](https://unichain-sepolia.blockscout.com/address/0xA8e4A5CECA23777aB7a6f07aE682845c891e2880) |
 | **PoolManager** (Uniswap v4, Unichain Sepolia) | [`0x00B036B58a818B1BC34d502D3fE730Db729e62AC`](https://unichain-sepolia.blockscout.com/address/0x00B036B58a818B1BC34d502D3fE730Db729e62AC) |
 
 The hook address ends in `0x2880`. v4 reads a hook's permissions from the low 14 bits of its address, so the salt is mined (see [`../script/README.md`](../script/README.md), `HookMiner.sol`) until the address encodes exactly `beforeInitialize | beforeAddLiquidity | beforeSwap`.
@@ -227,7 +227,7 @@ Time before `auctionEnd`, after the mandate's end, with no manager, after a brea
 
 LP fees are collected whenever the hook touches the managed position (every rebalance, settle, sweep and close). Collected fees are held in `fees0`/`fees1`, outside `idle`, so a rebalance can't redeploy unsettled fees as inventory.
 
-- **Pre-hire fees are the treasury's.** `_sweep` runs once, on the first `checkpoint`, `rebalance` or `settle` at or after `auctionEnd`, and moves everything the position earned before then straight into idle. `beforeSwap` can't unlock the PoolManager, so the sweep can't happen inside a swap. `test_settle_feesEarnedBeforeHireGoToTreasury`.
+- **Pre-hire fees are the treasury's.** `_sweep` runs once, on the first `checkpoint`, `rebalance` or `settle` at or after `auctionEnd`, and moves everything the position earned before then straight into idle. `beforeSwap` can't unlock the PoolManager, so the sweep can't happen inside a swap; instead the first swap after `auctionEnd` (while the sweep is pending) measures the position's uncollected fees with a view read of its fee growth (`LeashOracle.pendingFees`, the same formula PoolManager collects with) into `_preHire`. Fees accrue only in swaps and the position can't change before the sweep, so that is exactly the pre-hire amount: the sweep sends only it to idle and books the rest of what it collects to the first unsettled epoch. `test_settle_feesEarnedBeforeHireGoToTreasury` (a checkpoint comes first), `test_settle_epochFeesCountWhenASwapComesFirst` (a swap does).
 - **Epoch fees.** Fees collected by a rebalance are added to the current epoch's record; `_settle` pokes the position (a zero-liquidity modify) to collect the rest and books it to the epoch being settled.
 - **The anchor's fees never pay the manager.** The anchor is only touched at close, and its fees ride along to the treasury. `test_safe_anchorFeesNeverPayTheManager` runs the same managed path twice, once with extra trading outside the managed range: the manager's pay is identical, the treasury's take is larger.
 
@@ -324,7 +324,6 @@ From the root [README](../README.md#known-limits) and the re-audit:
 - **Fast trends breach honest managers.** While spot runs more than `maxTickDeviation` from the TWAP, rebalances are refused and out-of-range time counts. Four 30% swings in one day breached an honest manager on a ±600 range. Allowing re-ranges at any gap would reopen the sandwich. Managers of volatile tokens keep wide ranges; treasuries size `maxTickDeviation` and `uptimeBps` for the token.
 - **Oracle history is fixed at 1,024 observations.** About 17 minutes on 1-second blocks swapped every block; longer windows quietly shorten.
 - **Fees are booked when collected.** A late settle counts some of the next epoch's fees toward the earlier one.
-- **Pre-hire sweep gap.** Fees from swaps between `auctionEnd` and the first checkpoint go to the treasury; the manager is underpaid by its share of them, never overpaid. A keeper checkpoint at `auctionEnd` closes the gap.
 - **Quiet pools need the keeper.** Without checkpoints a long gap is judged only by its endpoints, and the first swap after a gap spanning many epochs pays to book them all (about 23k gas per epoch).
 - **ERC-20 only, standard tokens only.** Native ETH is rejected; fee-on-transfer and rebasing tokens are not supported.
 - **One mandate per pool.** One hook serves many pools.

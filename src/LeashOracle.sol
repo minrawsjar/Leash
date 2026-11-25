@@ -1,6 +1,12 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
+import {IPoolManager} from "v4-core/interfaces/IPoolManager.sol";
+import {StateLibrary} from "v4-core/libraries/StateLibrary.sol";
+import {FullMath} from "v4-core/libraries/FullMath.sol";
+import {FixedPoint128} from "v4-core/libraries/FixedPoint128.sol";
+import {PoolId} from "v4-core/types/PoolId.sol";
+
 /// One observation per block with a swap: the tick in force since the previous one, and the running sum.
 struct Obs {
     uint32 time;
@@ -23,8 +29,25 @@ struct Oracle {
     Obs[OBS] obs;
 }
 
-/// @notice Leash's truncated TWAP oracle. An external library, linked into Leash, so the hook fits under EIP-170.
+/// @notice Leash's truncated TWAP oracle, and one PoolManager state read. An external library, linked into Leash,
+///         so the hook fits under EIP-170.
 library LeashOracle {
+    using StateLibrary for IPoolManager;
+
+    /// A position's uncollected fees right now, as PoolManager computes them when it collects (Position.update).
+    function pendingFees(IPoolManager pm, PoolId id, address owner, int24 lo, int24 hi)
+        external
+        view
+        returns (uint128 f0, uint128 f1)
+    {
+        (uint128 liq, uint256 last0, uint256 last1) = pm.getPositionInfo(id, owner, lo, hi, bytes32(0));
+        (uint256 g0, uint256 g1) = pm.getFeeGrowthInside(id, lo, hi);
+        unchecked {
+            f0 = uint128(FullMath.mulDiv(g0 - last0, liq, FixedPoint128.Q128));
+            f1 = uint128(FullMath.mulDiv(g1 - last1, liq, FixedPoint128.Q128));
+        }
+    }
+
     /// Called before every swap with the pre-swap tick, at most once per block, so a price pushed and
     /// returned within one block never enters the TWAP.
     function observe(Oracle storage o, int24 tick) external {

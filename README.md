@@ -8,8 +8,8 @@
 ### Hire a market maker. Keep the leash.
 
 [![Uniswap v4](https://img.shields.io/badge/Uniswap%20v4-hook%20·%20flags%200x2880-4EF0B0?style=flat-square&labelColor=0B0D1F)](src/README.md)
-[![Unichain Sepolia](https://img.shields.io/badge/Unichain%20Sepolia-source%20verified-8B7BFF?style=flat-square&labelColor=0B0D1F)](https://unichain-sepolia.blockscout.com/address/0xbB07E2C8C163063C602A2D00ddc97d5FacE76880)
-[![forge](https://img.shields.io/badge/forge-72%20passed-4EF0B0?style=flat-square&labelColor=0B0D1F)](test/README.md)
+[![Unichain Sepolia](https://img.shields.io/badge/Unichain%20Sepolia-source%20verified-8B7BFF?style=flat-square&labelColor=0B0D1F)](https://unichain-sepolia.blockscout.com/address/0xA8e4A5CECA23777aB7a6f07aE682845c891e2880)
+[![forge](https://img.shields.io/badge/forge-73%20passed-4EF0B0?style=flat-square&labelColor=0B0D1F)](test/README.md)
 [![UHI11](https://img.shields.io/badge/UHI11-Hookathon-8B7BFF?style=flat-square&labelColor=0B0D1F)](#what-leash-is-live-today)
 
 **Leash is a Uniswap v4 hook that lets a token treasury hire a market maker without handing over its inventory.** The treasury deposits into the hook and posts a *mandate*, the rules a market maker must follow:
@@ -20,7 +20,7 @@
 
 It's live on Unichain Sepolia, built for the Uniswap Hook Incubator, cohort 11 (UHI11).
 
-[**Open the app**](https://leash-khaki.vercel.app/app) · [Landing page](https://leash-khaki.vercel.app) · [Verified hook on Blockscout](https://unichain-sepolia.blockscout.com/address/0xbB07E2C8C163063C602A2D00ddc97d5FacE76880) · [The contract, in full](src/README.md) · [Every audit finding](test/audit/README.md)
+[**Open the app**](https://leash-khaki.vercel.app/app) · [Landing page](https://leash-khaki.vercel.app) · [Verified hook on Blockscout](https://unichain-sepolia.blockscout.com/address/0xA8e4A5CECA23777aB7a6f07aE682845c891e2880) · [The contract, in full](src/README.md) · [Every audit finding](test/audit/README.md)
 
 ![The whole of Leash: the treasury, the manager and the keeper on the left; the Leash hook in the middle with its ledger, TWAP oracle, bond auction, compliance clock, rebalance guards and settlement; Uniswap's v4 PoolManager and the treasury-only pool on the right; the web app and AI drafter below; inventory moves only between the hook and the pool, or back to the treasury](docs/diagrams/leash.png)
 
@@ -34,8 +34,8 @@ It's live on Unichain Sepolia, built for the Uniswap Hook Incubator, cohort 11 (
 > - **Rules:** in range, deep enough, on pace, judged against the TWAP and counted in seconds, not swaps.
 > - **Settlement:** per epoch, anyone can settle and earns a small bounty from the treasury's fee share. A clean epoch pays the manager a share of the fees; a breach slashes part of the bond to the treasury, all of it at twice the allowance.
 > - **Fees:** every swap pays the manager's fee plus a surcharge that grows with the distance between spot and the TWAP, so pushing the price costs more the further it goes.
-> - **On chain:** the hook (23,792 bytes) and one linked oracle library (2,489 bytes), no owner, admin, pause or upgrade path. Deployed and source verified on Unichain Sepolia.
-> - **Tests:** 72 forge tests in 6 suites, including three invariants over 12,800 random calls each, and every attack from two internal review rounds kept as a test that now fails to profit.
+> - **On chain:** the hook (24,566 bytes) and one linked oracle library (4,282 bytes), no owner, admin, pause or upgrade path. Deployed and source verified on Unichain Sepolia.
+> - **Tests:** 73 forge tests in 6 suites, including three invariants over 12,800 random calls each, and every attack from two internal review rounds kept as a test that now fails to profit.
 
 ## Contents
 
@@ -210,7 +210,7 @@ Every bound `createMandate` checks, and the error each one raises, is in [src/RE
 | **Dragging the TWAP**: hold the price off for a whole window, then re-place around the dragged average (C-2, re-audit Medium-2). | The anchor makes holding cost about (anchor + managed liquidity in the path) × (X/20000)² per block, paid to arbitrageurs, and `createMandate` refuses an anchor under 19% of the deposit (`ThinAnchor`). The off-TWAP surcharge adds fees on every dragging block: a 600-tick drag now costs 18.20 tokens (16.58 before). The drag costs 53 to 349 times what it can then extract, because growth is capped at 5% per window. |
 | **Growing at a stale TWAP** right after a real market move (re-audit High-1). | `GROW_BPS`: at most 5% growth per rebalance, once per TWAP window. The remaining damage is bounded and pinned by tests; see [Known limits](#known-limits). |
 | **A bad stretch whitewashed** by checkpointing only once the TWAP drifted back. | An interval counts in only if the mandate was compliant at both ends; `test_checkpoint_whitewashAttemptBooksTheBadStretchOut` books the stretch out anyway. |
-| **`beforeSwap` can't unlock the PoolManager**, so fees can't be collected inside a swap. | Fees are collected whenever the hook touches the position. Pre-hire fees are swept to the treasury on the first checkpoint, rebalance or settle after `auctionEnd`, and the anchor's fees never pay the manager. |
+| **`beforeSwap` can't unlock the PoolManager**, so fees can't be collected inside a swap. | Fees are collected whenever the hook touches the position. Pre-hire fees are swept to the treasury on the first checkpoint, rebalance or settle after `auctionEnd`. If a swap comes first, its `beforeSwap` measures them from the position's fee growth (a view read, no unlock), so the epoch keeps everything earned after. The anchor's fees never pay the manager. |
 | **The per-transaction gas cap**: `close` after 365 unsettled epochs needed more than 2²⁴ gas (audit L-1). | `MAX_EPOCHS = 104` (two years of weekly epochs). Close with 104 unsettled epochs measures 8,610,615 gas. |
 | **A phantom deposit**: solmate's `SafeTransferLib` treats a call to an address without code as a successful transfer (audit M-1). | `createMandate` requires code at both currencies. Native ETH is rejected with it. |
 | **A clean manager's bond held hostage** by a treasury that never closes (audit M-2). | Settling the last epoch clean credits the bond to the manager's `owed` balance. All payouts are pull payments, so a reverting recipient can't block a bid, a settle or a close. |
@@ -226,8 +226,8 @@ Only measured values. Sources: `forge build --sizes`, `forge test`, `forge cover
 
 | | |
 |---|---|
-| Runtime bytecode | Leash **23,792 bytes**, 784 under the EIP-170 limit of 24,576; `LeashOracle` library 2,489 bytes |
-| Tests | **72 passed**, 0 failed, 0 skipped, in 6 suites: unit 44, audit 13, re-audit 8, invariants 3, deploy 2, keeper 2 |
+| Runtime bytecode | Leash **24,566 bytes**, 10 under the EIP-170 limit of 24,576; `LeashOracle` library 4,282 bytes |
+| Tests | **73 passed**, 0 failed, 0 skipped, in 6 suites: unit 45, audit 13, re-audit 8, invariants 3, deploy 2, keeper 2 |
 | Invariants | 3: the ledger matches balances; managers gain only their pay; bonds and balances are conserved (after every claim the hook holds exactly idle + fees + the posted bond, and the keeper is owed exactly its bounties). 128 runs × 100 calls each |
 | Coverage | `src/Leash.sol`: 100% lines, 99.52% statements, 95.83% branches, 100% functions. `src/LeashOracle.sol`: 100% on all four |
 | `close` with 104 unsettled epochs | **8,610,615 gas** (EIP-7825 cap: 16,777,216) |
@@ -253,7 +253,7 @@ Only measured values. Sources: `forge build --sizes`, `forge test`, `forge cover
 
 | Contract | Address |
 |---|---|
-| **Leash** (hook, source verified) | [`0xbB07E2C8C163063C602A2D00ddc97d5FacE76880`](https://unichain-sepolia.blockscout.com/address/0xbB07E2C8C163063C602A2D00ddc97d5FacE76880) |
+| **Leash** (hook, source verified) | [`0xA8e4A5CECA23777aB7a6f07aE682845c891e2880`](https://unichain-sepolia.blockscout.com/address/0xA8e4A5CECA23777aB7a6f07aE682845c891e2880) |
 | **PoolManager** (Uniswap v4) | [`0x00B036B58a818B1BC34d502D3fE730Db729e62AC`](https://unichain-sepolia.blockscout.com/address/0x00B036B58a818B1BC34d502D3fE730Db729e62AC) |
 | Test TKN / mUSDC (open mint, from [`deployments/1301-tokens.json`](deployments/1301-tokens.json)) | `0x2E8D07593389DDB1d84421D41e1d5fe120DCd99C` / `0xd010B2D159a9F43Ce22CDD038c7CC6BfBb2aaE3E` |
 
@@ -266,8 +266,8 @@ The address ends in `0x2880`: v4 reads a hook's permissions from its address bit
 | Check | Result |
 |---|---|
 | `./scripts/demo.sh` | The whole story on a fresh anvil in about 40 s: the 2% bond floor (`ThinBond`), an outbid bond refunded (`LowBid`), the mispricing rebalance refused (`SpotOffTwap`) and the same-block grow refused on chain (`SameBlock`), the off-TWAP surcharge charged (0.30% set fee becomes 0.43% at 140 ticks off), a clean epoch paying the manager 30% of fees and the keeper its bounty, a partial slash (241 s out against 180 s allowed takes 33% of the bond), and a close that leaves the hook holding nothing. Output: [`docs/demo-output.txt`](docs/demo-output.txt); video plan: [`docs/DEMO.md`](docs/DEMO.md) |
-| `forge test` | 72 passed, 0 failed, 0 skipped, 6 suites |
-| `forge build --sizes` | Leash 23,792 B, 784 B margin; LeashOracle 2,489 B |
+| `forge test` | 73 passed, 0 failed, 0 skipped, 6 suites |
+| `forge build --sizes` | Leash 24,566 B, 10 B margin; LeashOracle 4,282 B |
 | `forge test --match-path 'test/audit/*' -vv` | The 21 audit and re-audit tests, with every measured P&L and gas number |
 | `forge test --match-test test_dynamicFee` | The per-swap surcharge tests |
 | `forge test --match-test test_L1 -vv` | `close` with 104 unsettled epochs: 8,610,615 gas |
@@ -333,13 +333,12 @@ Add `?t=2.4` to the page URL to freeze the hero animation at that second.
 - **Oracle history is fixed at 1,024 observations** (one per block with a swap). A pool swapped every block on 1-second blocks keeps about 17 minutes, and longer windows quietly shorten to what's held. A growable buffer, as in Uniswap v3, would lift this.
 - **Fast trends.** While spot runs more than `maxTickDeviation` from the TWAP, rebalances are refused, and out-of-range time counts against the manager. The uptime allowance is the only slack: in the re-audit, four 30% swings in one day put an honest manager on a ±600-tick range 98 minutes out against 72 allowed. With the partial slash that now costs 3.61 of a 10-token bond (36%) instead of all of it, and the manager is not fired. Allowing re-ranges at any gap would reopen the sandwich, so managers of volatile tokens keep wide ranges, and treasuries set `maxTickDeviation` and `uptimeBps` for the token.
 - **Fees are booked when collected.** A late settle counts some of the next epoch's fees toward the earlier one; the keeper settles promptly.
-- **Pre-hire sweep gap.** Fees from swaps between `auctionEnd` and the first checkpoint go to the treasury; the manager is underpaid by its share of them, never overpaid. A keeper checkpoint at `auctionEnd` closes the gap.
 - **Quiet pools need the keeper.** Without checkpoints, a long gap is judged only by its endpoints, and the first swap after a gap spanning many epochs pays to book them all (about 23k gas per epoch).
 - **Standard ERC-20s only.** Fee-on-transfer and rebasing tokens are not supported.
 - **A big move can empty one side.** After a large price move, one side of the inventory runs out, so the manager can't place a range above the depth floor (rebalances refused as `TooShallow`) and the epoch breaches. Found with the app's rules backtester; treasuries size `minLiquidity` for the moves they expect.
 - **Trends can beat the pace cap.** On long terms, a sustained trend can push the stablecoin share past the glide path whatever the manager does. Also found with the backtester.
 - **Repeated misses shrink geometrically.** The partial slash takes its share from the remaining bond, so each later miss slashes less in absolute terms.
-- **23,792 bytes.** 784 bytes of headroom under EIP-170, after moving the oracle into its own library.
+- **24,566 bytes.** 10 bytes of headroom under EIP-170, with the oracle and one PoolManager state read in their own library. The next feature needs more moved out.
 
 ### What we don't claim
 

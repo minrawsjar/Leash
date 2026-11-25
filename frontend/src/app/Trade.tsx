@@ -2,7 +2,7 @@
 // position (a clean epoch pays the manager its share at settle); a big enough one drags the TWAP out of the manager's
 // range, which is a breach unless the manager rebalances.
 import { useState } from 'react';
-import { erc20Abi, parseUnits, zeroAddress } from 'viem';
+import { erc20Abi, parseUnits } from 'viem';
 import { client, dur, feePct, fmt, fmtNum, fmtPrice, pct, priceAt, swapPreview, type Snapshot } from './chain.ts';
 import * as act from './actions.ts';
 import { Act, Stat, useApp, usePoll } from './ui.tsx';
@@ -49,7 +49,6 @@ export function Trade({ s }: { s: Snapshot }) {
     : have !== null && raw > have ? `Your wallet holds ${fmt(have, pay.decimals)} ${pay.symbol}, less than this.`
     : q?.unfilled ? 'Larger than the pool can fill.' : '';
   const presets = buy ? [1_000, 10_000] : [500, 5_000];
-  const sweepFirst = !s.m.swept && s.m.manager !== zeroAddress && s.now >= t.auctionEnd;
 
   return (
     <div className="grid">
@@ -84,14 +83,8 @@ export function Trade({ s }: { s: Snapshot }) {
         {q && leaves(q.tickAfter) && !s.m.closed && (
           <p className="banner">This trade ends outside the manager's range. Held there, the TWAP ({dur(t.twapWindow)} window) follows it out, and every second after that counts against the manager until they rebalance: past {pct(10_000 - t.uptimeBps, 0)} of an epoch the bond is slashed.</p>
         )}
-        <Act label="Swap" disabled={!!problem} why={problem || (sweepFirst ? 'First trade since bidding closed: a checkpoint goes first, so the auction\'s fees go to the treasury and this trade\'s fees count toward the manager\'s epoch (one more signature). ' : '') + 'Estimated above; the chain decides. The first trade in each token also approves the test router.'}
-          run={async () => {
-            const ctx = await wallet.ctx(net);
-            // The contract hands fees earned before the epochs to the treasury at the first checkpoint after bidding
-            // closes, and swaps don't trigger it. Without a keeper running, do it here, or this trade's fees count as pre-hire.
-            if (sweepFirst) await act.checkpoint(ctx, s.key);
-            return act.swap(ctx, router!, s.key, zeroForOne, raw!);
-          }} />
+        <Act label="Swap" disabled={!!problem} why={problem || 'Estimated above; the chain decides. Simulated first. The first trade in each token also approves the test router (one more signature).'}
+          run={async () => act.swap(await wallet.ctx(net), router!, s.key, zeroForOne, raw!)} />
       </section>
 
       <section className="card">

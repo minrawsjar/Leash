@@ -102,14 +102,11 @@ On start it reads the chain id from the RPC, then `leash` and `block` from `depl
 
 `cast send` waits for each receipt, so settles go out in order. The key reaches `cast` as `--private-key`, which other local users can see in the process list; run it on a machine you trust. `script/Settle.s.sol` is the older one-pool version of the same round, kept for `test/Settle.t.sol` and for a deployments file with a `pool` key (`31337.json`).
 
-Dry run against Unichain Sepolia (one mandate so far, already closed):
+Dry run against Unichain Sepolia, right after the current hook was deployed (no mandates on it yet):
 
 ```
-[23:29:27] keeper on chain 1301, leash 0xbB07E2C8C163063C602A2D00ddc97d5FacE76880, logs from block 68691824, dry run
-[23:29:33] found mandate 0x137826902a9552c220d2ebfb7c7d7d615c127a5d7087fda73794a6a5992964b6 (0x2E8D07593389DDB1d84421D41e1d5fe120DCd99C,0xd010B2D159a9F43Ce22CDD038c7CC6BfBb2aaE3E,8388608,60,0xbB07E2C8C163063C602A2D00ddc97d5FacE76880)
-[23:29:40] round: 1 mandate(s), logs scanned to 68690740
-  0x137826902a9552c220d2ebfb7c7d7d615c127a5d7087fda73794a6a5992964b6
-    closed: skip
+[20:43:36] keeper on chain 1301, leash 0xA8e4A5CECA23777aB7a6f07aE682845c891e2880, logs from block 68766877, dry run
+[20:43:37] round: 0 mandate(s), logs scanned to 68767188
 ```
 
 ## What the Keeper Is For
@@ -118,7 +115,7 @@ Leash judges a manager by time in compliance, and it only measures time when som
 
 **Checkpoint cadence.** `_checkpoint` credits the seconds since the previous check (`lastCheck`) to the epochs they span, all in or all out of compliance. Compliant means the TWAP is inside the managed range (`inRange`), the position's liquidity is at or above `minLiquidity` (`deep`), and the stablecoin share of the inventory is within the glide path (`onPace`). Because the TWAP drifts between checks, an interval counts as in only if the mandate was compliant at **both** ends (`ok = okNow && m.lastOk`). Waiting out a bad stretch and checkpointing once the TWAP is back still books that stretch as out. The comment on `_checkpoint` puts the error at "at most one interval per change of state". Every swap and every manager action also checkpoints, but a quiet pool has neither, so the `checkpoint` docstring says "keepers call it every minute or so". That is the 60 s default here: the shorter the interval, the closer the booked in/out seconds are to the truth.
 
-**The first round after the auction.** Swap fees the position earned before the manager's first epoch belong to the treasury. `beforeSwap` cannot unlock the PoolManager to collect them, so the first `checkpoint`, rebalance or settle after `auctionEnd` sweeps them into idle (`_sweep`). Fees from swaps between `auctionEnd` and that call also go to the treasury, underpaying the manager by `managerFeeBps` of them; per the `_sweep` comment, "a keeper calling checkpoint() at auctionEnd closes the gap". The same applies to epoch 0: `createMandate` sets `lastOk = true` so the first interval is judged by its end alone, and a checkpoint at `auctionEnd` makes that interval empty. `keeper.sh` (like `Settle.s.sol`) therefore checkpoints whenever `!m.swept`.
+**The first round after the auction.** Swap fees the position earned before the manager's first epoch belong to the treasury. `beforeSwap` cannot unlock the PoolManager to collect them, so the first `checkpoint`, rebalance or settle after `auctionEnd` sweeps them into idle (`_sweep`). If a swap comes first, its `beforeSwap` measures the pre-hire amount, so the sweep takes only that and the epoch keeps the rest. The same applies to epoch 0: `createMandate` sets `lastOk = true` so the first interval is judged by its end alone, and a checkpoint at `auctionEnd` makes that interval empty. `keeper.sh` (like `Settle.s.sol`) therefore checkpoints whenever `!m.swept`.
 
 **Settle cadence.** `settle(key, e)` judges a finished epoch: `clean` if `inSecs * 10000 >= uptimeBps * (inSecs + outSecs)`. A clean epoch credits the manager `managerFeeBps` of the fees collected and, on the last epoch, frees the bond to the manager. A dirty one slashes the whole bond to the treasury and marks the mandate breached. Epochs must be settled in order (`epoch == m.settled`), only after they end. Fees are booked when collected, so a late settle books some of epoch `e+1`'s fees to `e` (the `ponytail` note in `_settle`: "Settle promptly"). The keeper settles every ended epoch on the first round after it ends.
 

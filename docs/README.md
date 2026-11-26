@@ -1,6 +1,6 @@
 # Docs: Images and Diagrams
 
-> **Every image the READMEs and the site use, and the sources that draw them.**
+> **Every image the READMEs and the site use, and the source that draws the wordmark.**
 
 ## Files
 
@@ -9,19 +9,16 @@
 | `logo.svg` | The Leash mark: a mint rounded square with a handle loop, a lead and a snap clip | Same drawing as `frontend/src/Mark.tsx` and `frontend/public/favicon.svg` |
 | `wordmark-dark.png`, `wordmark-light.png` | The mark plus "leash" in Poppins 800 and the tagline; light text for GitHub's dark mode, dark text for light mode | The root README's header, inside `<picture>` |
 | `hero.png` | A screenshot of the landing page's hero | Kept for sharing; no README embeds it now |
-| `diagrams/leash.png`, `.svg` | The whole system: who acts, the hook's parts, Uniswap v4, the app | Root README, header |
-| `diagrams/lifecycle.png`, `.svg` | Post, auction, active epochs, settle (pay or partial/full slash), close and claim | Root README, "The life of a mandate" |
-| `diagrams/mispricing.png`, `.svg` | The four-step mispricing attack and the guard that stops each step | Root README, "How the hook keeps the leash" |
-| `diagrams/money.png`, `.svg` | Where money can go: the per-mandate ledger and every allowed flow | Root README, "Where the money can go" |
-| `diagrams/src/` | The sources: one HTML page per diagram, `lib.js` (rough.js shapes), the Excalifont and Virgil fonts, and `render.mjs` | Re-render after any change |
+| `src/wordmark.html`, `src/render.mjs` | The page that draws the wordmark, and the script that renders it to PNG | Re-render after any change |
 
-## Re-rendering
+The README's four diagrams (the system, the life of a mandate, where the money can go, the mispricing attack) are Mermaid blocks in [`../README.md`](../README.md), rendered by GitHub. Edit them there.
 
-Each diagram is an HTML page that draws an SVG with rough.js. `render.mjs` serves the folder, opens the page in headless Chrome, screenshots it at 2x and saves the SVG with its fonts embedded.
+## Re-rendering the wordmark
+
+`render.mjs` serves `docs/src/`, opens the page in headless Chrome and screenshots it at 2x.
 
 ```bash
-node docs/diagrams/src/render.mjs leash.html docs/diagrams/leash.png docs/diagrams/leash.svg
-node docs/diagrams/src/render.mjs wordmark.html docs/wordmark-dark.png --transparent   # see wordmark.html for the light variant
+node docs/src/render.mjs wordmark.html docs/wordmark-dark.png --transparent   # see wordmark.html for the light variant
 ```
 
-It needs Google Chrome at `/Applications/Google Chrome.app`. Open each PNG after rendering: the script reports text that overflows its box, but not arrows that point the wrong way.
+It needs Google Chrome at `/Applications/Google Chrome.app`.

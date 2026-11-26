@@ -22,9 +22,48 @@ It's live on Unichain Sepolia, built for the Uniswap Hook Incubator, cohort 11 (
 
 [**Open the app**](https://leash-khaki.vercel.app/app) · [Landing page](https://leash-khaki.vercel.app) · [Verified hook on Blockscout](https://unichain-sepolia.blockscout.com/address/0xA8e4A5CECA23777aB7a6f07aE682845c891e2880) · [The contract, in full](src/README.md) · [Every audit finding](test/audit/README.md)
 
-![The whole of Leash: the treasury, the manager and the keeper on the left; the Leash hook in the middle with its ledger, TWAP oracle, bond auction, compliance clock, rebalance guards and settlement; Uniswap's v4 PoolManager and the treasury-only pool on the right; the web app and AI drafter below; inventory moves only between the hook and the pool, or back to the treasury](docs/diagrams/leash.png)
-
 </div>
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 400}}}%%
+flowchart TB
+  classDef mint fill:#dcf8ec,stroke:#1fa971,stroke-width:1.5px,color:#0f2a1f
+  classDef violet fill:#ece9fe,stroke:#7a63e6,stroke-width:1.5px,color:#1d1640
+  classDef grey fill:#eff1f5,stroke:#4a4f63,stroke-width:1.5px,color:#1b1e2e
+  classDef rose fill:#fde3eb,stroke:#d43f6c,stroke-width:1.5px,color:#3a0f1c
+  T["<b>Treasury</b><br/>posts the mandate,<br/>owns the inventory"]
+  M["<b>Manager</b><br/>wins with the highest<br/>first-loss bond"]
+  K["<b>Keeper</b><br/>anyone, every 60 s;<br/>earns 10 bps on settle"]
+  subgraph hook ["Leash hook · 0xA8e4…2880"]
+    L["<b>Mandates and ledger</b><br/>idle and fees per mandate;<br/>owed[account][currency];<br/>bonds in the stablecoin"]
+    AU["<b>Bond auction</b><br/>each bid beats the last;<br/>outbid bonds go to owed;<br/>highest at auctionEnd wins"]
+    G["<b>Rebalance guards</b><br/>one per block; spot near TWAP;<br/>range ≥ TWAP ± minHalfWidth;<br/>grow ≤ 5% per window"]
+    O["<b>Oracle (TWAP)</b><br/>LeashOracle library; 1,024<br/>observations, one per block,<br/>moving ≤ 50 ticks per second"]
+    C["<b>Compliance clock</b><br/>in range · deep · on pace,<br/>judged on the TWAP; a stretch<br/>is in only if both ends pass"]
+    S["<b>Settlement</b><br/>clean: managerFeeBps of fees;<br/>out too long: a slash growing<br/>with time out, all at 2×"]
+    L ~~~ O
+    AU ~~~ C
+    G ~~~ S
+  end
+  PM["<b>v4 PoolManager</b><br/>calls only beforeInitialize, beforeAddLiquidity<br/>and beforeSwap; anyone else's initialize or<br/>addLiquidity reverts HookOnly"]
+  P["<b>Leash pool</b><br/>managed range + full-range anchor;<br/>fee: the manager's + an off-TWAP<br/>surcharge, ≤ maxFee"]
+  X["<b>Swappers and<br/>arbitrageurs</b>"]
+  T <-->|"createMandate · close"| L
+  M -->|bid| AU
+  M -->|"rebalance · setFee"| G
+  M <-.->|"claim: pay + own bond"| L
+  K ~~~ G
+  K -->|"checkpoint · settle"| C
+  O <-->|"beforeSwap: record, book, fee"| PM
+  G <-->|"unlock: modifyLiquidity"| PM
+  PM <--> P
+  PM <-->|swaps| X
+  class T,K,PM,X grey
+  class M,AU violet
+  class L,G,O,C,S,P mint
+```
+
+**The leash:** inventory moves only between the hook and the pool, or back to the treasury. The manager's two verbs, `rebalance` and `setFee`, take no recipient; it receives only its pay and its own bond, through `claim`. The hook has no owner, admin, pause or upgrade.
 
 ---
 
@@ -80,7 +119,43 @@ Leash makes market making and diversification the same trade. The treasury's tok
 
 ## The life of a mandate
 
-![The life of a mandate: the treasury posts it, managers bid a bond, the winner manages through active epochs while every swap and keeper checkpoint books compliance; each epoch is settled in order, clean pays the manager and breach slashes the bond; then the treasury closes and everyone claims](docs/diagrams/lifecycle.png)
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 400}}}%%
+flowchart TB
+  classDef mint fill:#dcf8ec,stroke:#1fa971,stroke-width:1.5px,color:#0f2a1f
+  classDef violet fill:#ece9fe,stroke:#7a63e6,stroke-width:1.5px,color:#1d1640
+  classDef grey fill:#eff1f5,stroke:#4a4f63,stroke-width:1.5px,color:#1b1e2e
+  classDef rose fill:#fde3eb,stroke:#d43f6c,stroke-width:1.5px,color:#3a0f1c
+  C["<b>1 · Treasury: createMandate</b><br/>the hook creates the pool, sets the fee to the cap,<br/>pulls the inventory, places the opening range<br/>and the full-range anchor"]
+  A["<b>2 · Bond auction</b><br/>bid(): at least minBond, strictly above the last;<br/>an outbid bond goes to owed;<br/>the highest bid at auctionEnd wins"]
+  subgraph E ["3 · Active epochs"]
+    MG["<b>Manager: rebalance · setFee</b><br/>one per block, spot near the TWAP,<br/>grow ≤ 5% per window,<br/>fee in [minFee, maxFee]"]
+    SW["<b>Every swap: beforeSwap</b><br/>records the pre-swap tick, books<br/>the seconds since the last check<br/>as in or out of compliance"]
+    KP["<b>Keeper: checkpoint()</b><br/>every 60 s, so quiet<br/>stretches are judged,<br/>not skipped"]
+  end
+  ST["<b>4 · settle(e), in order, by anyone</b><br/>clean if in-seconds ≥ uptimeBps (e.g. 95%);<br/>the caller earns 10 bps of the treasury's fee share"]
+  CL["<b>Clean</b><br/>the manager is owed<br/>managerFeeBps of the epoch's fees"]
+  BR["<b>Out too long</b><br/>slash = bond × (out − allowance) / allowance;<br/>at 2× the allowance, all of it, manager fired"]
+  X["<b>5 · Treasury: close()</b><br/>settles what is left, removes the managed range<br/>and the anchor, sends idle + fees to the treasury;<br/>what is left of the bond goes to the manager's owed"]
+  CLM["<b>claim(currency)</b><br/>pull payments: pay, returned<br/>or outbid bonds, slashes"]
+  C --> A
+  A -->|"auctionEnd: up to 104 epochs"| SW
+  A ~~~ MG & KP
+  MG & KP ~~~ ST
+  SW -->|"epoch ends"| ST
+  ST -->|clean| CL
+  ST -->|breach| BR
+  CL -->|"next epoch"| SW
+  BR -->|"under 2×: next epoch"| SW
+  CL -->|"after the last epoch"| X
+  BR -->|"fired, or after the last epoch"| X
+  A -.->|"no bids: close from auctionEnd"| X
+  X -->|then| CLM
+  class C,X,KP grey
+  class A,MG,CLM violet
+  class SW,ST,CL mint
+  class BR rose
+```
 
 1. **Post a mandate.** The treasury calls `createMandate` with a pool key, a starting price, the terms and the inventory. The hook creates the pool itself, sets the fee to the mandate's cap, pulls in the tokens and places the treasury's opening position, so the pool is never empty.
 2. **Bond auction.** Until `auctionEnd`, managers call `bid` with a bond in the stablecoin. Each bid must beat the current one. An outbid bond goes straight into the bidder's claimable balance. If nobody bids, the treasury can close from `auctionEnd`.
@@ -94,7 +169,39 @@ Leash makes market making and diversification the same trade. The treasury's tok
 
 The whole design rests on one property: **inventory only ever moves between the hook and the pool, except when it goes back to the treasury.**
 
-![Where the money can go: the treasury deposits into the hook's per-mandate ledger and gets everything back at close; the manager posts a bond and receives only its pay and its own bond through claim; the hook adds and removes liquidity in the v4 pool, which swappers trade against; there is no path from the inventory to the manager](docs/diagrams/money.png)
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 400}}}%%
+flowchart TB
+  classDef mint fill:#dcf8ec,stroke:#1fa971,stroke-width:1.5px,color:#0f2a1f
+  classDef violet fill:#ece9fe,stroke:#7a63e6,stroke-width:1.5px,color:#1d1640
+  classDef grey fill:#eff1f5,stroke:#4a4f63,stroke-width:1.5px,color:#1b1e2e
+  classDef rose fill:#fde3eb,stroke:#d43f6c,stroke-width:1.5px,color:#3a0f1c
+  T["<b>Treasury</b><br/>deposits token + stablecoin;<br/>the only one who gets<br/>the inventory back"]
+  M["<b>Manager</b><br/>posts the bond, moves<br/>the range, sets the fee"]
+  subgraph H ["Leash hook: the ledger"]
+    I["<b>idle0 · idle1</b><br/>this mandate's inventory<br/>outside the pool"]
+    F["<b>fees0 · fees1</b><br/>LP fees collected,<br/>kept out of idle"]
+    O["<b>owed[account][currency]</b><br/>pull payments: pay, returned<br/>or outbid bonds, slashes"]
+    B["<b>bond</b><br/>in the stablecoin,<br/>≥ 2% of the deposit"]
+  end
+  P["<b>v4 pool</b><br/>managed range + full-range anchor;<br/>nobody else can add liquidity"]
+  X["<b>Swappers and arbitrageurs</b>"]
+  T -->|"createMandate: deposit"| I
+  I -->|"close: all idle + fees"| T
+  M -->|"bid: bond"| B
+  B -->|"slash, outbid, or<br/>returned at the end"| O
+  F -->|"settle: the treasury's share"| I
+  F -->|"settle: pay, keeper bounty"| O
+  O -->|"claim: pay + own bond"| M
+  O -->|"claim: slashed bond"| T
+  I -->|"rebalance: add"| P
+  P -->|"rebalance, close: remove"| I
+  P -->|fees| F
+  X <-->|swaps| P
+  class T,X grey
+  class M,B violet
+  class I,F,O,P mint
+```
 
 The manager has exactly two verbs, `rebalance` and `setFee`. Neither takes a recipient address. No function sends inventory to the manager. The only things a manager ever receives are their own bond back and their pay, both through `claim`.
 
@@ -111,7 +218,31 @@ Blocking withdrawals is the easy part. A manager who wants to steal can do it th
 
 Nothing was withdrawn, yet the treasury lost money.
 
-![The mispricing attack in four steps, each with the guard that stops it: the anchor keeps the pool from emptying, the truncated oracle and the anchor make pushing the price cost capital, rebalance is refused off the TWAP, and an off-TWAP fee surcharge plus the anchor make dragging the TWAP cost far more than it extracts; the grief variant is priced out because compliance is judged on the TWAP](docs/diagrams/mispricing.png)
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 400}}}%%
+flowchart LR
+  classDef mint fill:#dcf8ec,stroke:#1fa971,stroke-width:1.5px,color:#0f2a1f
+  classDef violet fill:#ece9fe,stroke:#7a63e6,stroke-width:1.5px,color:#1d1640
+  classDef grey fill:#eff1f5,stroke:#4a4f63,stroke-width:1.5px,color:#1b1e2e
+  classDef rose fill:#fde3eb,stroke:#d43f6c,stroke-width:1.5px,color:#3a0f1c
+  A1["<b>1 · Pull the liquidity</b><br/>take the treasury's range out,<br/>so the pool is nearly empty"]
+  A2["<b>2 · Push the price</b><br/>a tiny swap moves it far,<br/>because nothing is in the way"]
+  A3["<b>3 · Re-place around it</b><br/>put the treasury's inventory<br/>back around the fake low price"]
+  A4["<b>4 · Buy it cheap</b><br/>buy the treasury's tokens from<br/>another wallet; nothing<br/>was withdrawn"]
+  R["<b>Grief variant</b><br/>an outsider pushes the price out<br/>of an honest manager's range to<br/>get the bond slashed (the treasury,<br/>who gets the bond, could be the one)"]
+  G1["<b>Never empty</b><br/>the full-range anchor stays until close and the<br/>manager can't move it; it holds ≥ 19% of the<br/>deposit (ThinAnchor); the managed range never<br/>drops below minLiquidity"]
+  G2["<b>Pushing costs capital</b><br/>+10 pips per tick off the TWAP; every tick has<br/>anchor liquidity; the oracle takes the pre-swap<br/>tick once per block, at most 50 ticks/s: a one-<br/>block spike moves a 30-min TWAP ≤ 4 ticks"]
+  G3["<b>rebalance is refused</b><br/>spot more than maxTickDeviation off the TWAP:<br/>SpotOffTwap; one per block: SameBlock; range<br/>≥ TWAP ± minHalfWidth; grow only at the TWAP<br/>(±2), ≤ 5% per window: GrowTooFast"]
+  G4["<b>Nothing to buy cheap</b><br/>the inventory sits around the TWAP; minFee and<br/>the off-TWAP surcharge make every round trip<br/>pay: a 600-tick drag costs 18.20 tokens, and<br/>a re-place extracts a fraction of that"]
+  RG["<b>Compliance is judged on the TWAP, in seconds</b><br/>three one-block spikes leave the TWAP ≤ 4 ticks:<br/>clean; holding the range edge for 110 minutes<br/>does breach, but costs 677 tokens against a<br/>10-token bond (~68×), paid to the arbitrageur"]
+  A1 -->|stopped by| G1
+  A2 -->|stopped by| G2
+  A3 -->|stopped by| G3
+  A4 -->|stopped by| G4
+  R -->|priced out by| RG
+  class A1,A2,A3,A4,R rose
+  class G1,G2,G3,G4,RG mint
+```
 
 Leash blocks this with a **TWAP** (time-weighted average price) that the hook records itself:
 
@@ -362,14 +493,16 @@ Every folder has a README index.
 | [`frontend/src/app/`](frontend/src/app/) | The app at `/app`: explorer, create, dashboard, manager console, settle and claim | [README](frontend/src/app/README.md) |
 | [`frontend/src/site/`](frontend/src/site/) | The landing page | [README](frontend/src/site/README.md) |
 | [`frontend/api/`](frontend/api/) | `POST /api/draft`, the AI mandate drafter (OpenRouter, server-side only) | [README](frontend/api/README.md) |
-| [`docs/`](docs/) | README images; the diagrams and their sources are in `docs/diagrams/` | [README](docs/README.md) |
+| [`docs/`](docs/) | The wordmark, logo and demo notes; the README's diagrams are Mermaid, in the README itself | [README](docs/README.md) |
 
 ```
 src/Leash.sol              the hook: mandates, auction, liquidity, TWAP, compliance, settlement
 src/LeashOracle.sol        linked library: the TWAP oracle (observe, truncate, read)
 src/utils/BaseHook.sol     vendored v4 BaseHook (periphery at this pin no longer ships it)
+test/utils/LeashBase.sol   the shared setUp and helpers
 test/Leash.t.sol           unit tests
-test/fuzz/                 invariant tests: ledger == balances, managers gain only their pay, bonds conserved
+test/Paths.t.sol           success and failure flows through every entry point
+test/fuzz/                 fuzz tests, and invariant tests: ledger == balances, managers gain only their pay, bonds conserved
 test/Deploy.t.sol          the deployed hook address encodes exactly its permissions
 test/Settle.t.sol          keeper logic
 test/audit/                the audit's attacks, each asserting it now fails
@@ -380,10 +513,10 @@ scripts/local.sh           one command: fresh anvil with everything deployed
 scripts/keeper.sh          keeper: finds every mandate from logs, checkpoints and settles each every minute
 deployments/               addresses per chain, and the ABI for the frontend
 frontend/                  landing page, app and AI drafter (Vite + React + TypeScript)
-docs/diagrams/             the README diagrams (PNG + SVG) and the rough.js pages that draw them (src/)
+docs/                      the wordmark, the logo and the page that renders the wordmark (src/)
 ```
 
-The diagrams are drawn by `docs/diagrams/src/*.html` with rough.js and rendered by `node docs/diagrams/src/render.mjs <page>.html <out>.png [<out>.svg]` (headless Chrome). The wordmark is `docs/diagrams/src/wordmark.html?mode=light|dark`, rendered with `--transparent`.
+The diagrams in this README are Mermaid blocks, which GitHub renders; edit them in place. The wordmark is `docs/src/wordmark.html?mode=light|dark`, rendered by `node docs/src/render.mjs wordmark.html docs/wordmark-dark.png --transparent` (headless Chrome).
 
 ## Roadmap
 

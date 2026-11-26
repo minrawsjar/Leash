@@ -78,32 +78,6 @@ Leash makes market making and diversification the same trade. The treasury's tok
 | **Keeper** | Anyone. Calls `checkpoint` every minute and settles ended epochs, so quiet stretches are judged and payouts happen on time. Whoever settles earns 10 bps of the treasury's share of that epoch's fees. |
 | **Leash hook** | Holds the inventory, owns the LP position, records prices, checks every swap, and pays or slashes at the end of each epoch. |
 
-### What's built
-
-Built for the UHI11 Hookathon. Everything below is done:
-
-| Piece | Where |
-|---|---|
-| Mandates: hook-created treasury-only pool, deposit, opening position | [`src/Leash.sol`](src/Leash.sol) |
-| Bond auction with pull-payment refunds (`bid`, `claim`) | `Leash.sol` |
-| Hook-owned liquidity, manager `rebalance`, per-mandate ledger | `Leash.sol` |
-| Capped dynamic fee (`setFee`), plus a per-swap surcharge when spot is off the TWAP | `Leash.sol` |
-| Hook-recorded TWAP and the rebalance guard | `Leash.sol` |
-| Per-swap compliance, time-in-compliance accounting, public `checkpoint` | `Leash.sol` |
-| Epoch settlement: pay, or a slash proportional to the time out; manager track record | `Leash.sol` |
-| Keeper bounty on `settle`, paid from the treasury's fee share | `Leash.sol` |
-| Bond floor: `minBond` at least 2% of the deposit's value (`ThinBond`) | `Leash.sol` |
-| TWAP oracle as an external linked library | [`src/LeashOracle.sol`](src/LeashOracle.sol) |
-| `close`: settles remaining epochs, returns everything | `Leash.sol` |
-| Invariant fuzzing: ledger always matches balances; managers gain only their pay; bonds and balances are conserved | [`test/fuzz/`](test/README.md) |
-| Deploy script, local dev chain, keeper | [`script/`](script/README.md), [`scripts/`](scripts/README.md) |
-| Security review (internal, not a third-party audit): 2 critical, 1 high, 2 medium, 1 low found and fixed; each attack kept as a regression test | [`test/audit/`](test/audit/README.md) |
-| Re-audit of the fixes: 1 high, 2 medium, 2 low found; fixed or bounded and documented under [Known limits](#known-limits), each kept as a test | [`test/audit/`](test/audit/README.md) |
-| Unichain Sepolia deployment (source verified) | [Deployment addresses](#deployment-addresses) |
-| Landing page: animated mandate hero, five-scene scroll story (React + TypeScript) | [leash-khaki.vercel.app](https://leash-khaki.vercel.app), [`frontend/src/site/`](frontend/src/site/README.md) |
-| App at `/app` (viem): mandates, live dashboard, create with a rules backtester, bid, manager console, keeper panel, a `#/managers` leaderboard, settle and claim; writes checked by `frontend/src/app/verify.ts` on anvil | [leash-khaki.vercel.app/app](https://leash-khaki.vercel.app/app), [`frontend/src/app/`](frontend/src/app/README.md) |
-| AI mandate drafter: plain words in, a filled form out; it signs nothing | [`frontend/api/`](frontend/api/README.md) |
-
 ## The life of a mandate
 
 ![The life of a mandate: the treasury posts it, managers bid a bond, the winner manages through active epochs while every swap and keeper checkpoint books compliance; each epoch is settled in order, clean pays the manager and breach slashes the bond; then the treasury closes and everyone claims](docs/diagrams/lifecycle.png)

@@ -22,48 +22,9 @@ It's live on Unichain Sepolia, built for the Uniswap Hook Incubator, cohort 11 (
 
 [**Open the app**](https://leash-khaki.vercel.app/app) · [Landing page](https://leash-khaki.vercel.app) · [Verified hook on Blockscout](https://unichain-sepolia.blockscout.com/address/0xA8e4A5CECA23777aB7a6f07aE682845c891e2880) · [The contract, in full](src/README.md) · [Every audit finding](test/audit/README.md)
 
+![The whole of Leash: the treasury, the manager and the keeper on the left; the Leash hook in the middle with its ledger, TWAP oracle, bond auction, compliance clock, rebalance guards and settlement; Uniswap's v4 PoolManager and the treasury-only pool on the right; the web app and AI drafter below; inventory moves only between the hook and the pool, or back to the treasury](docs/diagrams/leash.png)
+
 </div>
-
-```mermaid
-%%{init: {"flowchart": {"wrappingWidth": 400}}}%%
-flowchart TB
-  classDef mint fill:#dcf8ec,stroke:#1fa971,stroke-width:1.5px,color:#0f2a1f
-  classDef violet fill:#ece9fe,stroke:#7a63e6,stroke-width:1.5px,color:#1d1640
-  classDef grey fill:#eff1f5,stroke:#4a4f63,stroke-width:1.5px,color:#1b1e2e
-  classDef rose fill:#fde3eb,stroke:#d43f6c,stroke-width:1.5px,color:#3a0f1c
-  T["<b>Treasury</b><br/>posts the mandate,<br/>owns the inventory"]
-  M["<b>Manager</b><br/>wins with the highest<br/>first-loss bond"]
-  K["<b>Keeper</b><br/>anyone, every 60 s;<br/>earns 10 bps on settle"]
-  subgraph hook ["Leash hook · 0xA8e4…2880"]
-    L["<b>Mandates and ledger</b><br/>idle and fees per mandate;<br/>owed[account][currency];<br/>bonds in the stablecoin"]
-    AU["<b>Bond auction</b><br/>each bid beats the last;<br/>outbid bonds go to owed;<br/>highest at auctionEnd wins"]
-    G["<b>Rebalance guards</b><br/>one per block; spot near TWAP;<br/>range ≥ TWAP ± minHalfWidth;<br/>grow ≤ 5% per window"]
-    O["<b>Oracle (TWAP)</b><br/>LeashOracle library; 1,024<br/>observations, one per block,<br/>moving ≤ 50 ticks per second"]
-    C["<b>Compliance clock</b><br/>in range · deep · on pace,<br/>judged on the TWAP; a stretch<br/>is in only if both ends pass"]
-    S["<b>Settlement</b><br/>clean: managerFeeBps of fees;<br/>out too long: a slash growing<br/>with time out, all at 2×"]
-    L ~~~ O
-    AU ~~~ C
-    G ~~~ S
-  end
-  PM["<b>v4 PoolManager</b><br/>calls only beforeInitialize, beforeAddLiquidity<br/>and beforeSwap; anyone else's initialize or<br/>addLiquidity reverts HookOnly"]
-  P["<b>Leash pool</b><br/>managed range + full-range anchor;<br/>fee: the manager's + an off-TWAP<br/>surcharge, ≤ maxFee"]
-  X["<b>Swappers and<br/>arbitrageurs</b>"]
-  T <-->|"createMandate · close"| L
-  M -->|bid| AU
-  M -->|"rebalance · setFee"| G
-  M <-.->|"claim: pay + own bond"| L
-  K ~~~ G
-  K -->|"checkpoint · settle"| C
-  O <-->|"beforeSwap: record, book, fee"| PM
-  G <-->|"unlock: modifyLiquidity"| PM
-  PM <--> P
-  PM <-->|swaps| X
-  class T,K,PM,X grey
-  class M,AU violet
-  class L,G,O,C,S,P mint
-```
-
-**The leash:** inventory moves only between the hook and the pool, or back to the treasury. The manager's two verbs, `rebalance` and `setFee`, take no recipient; it receives only its pay and its own bond, through `claim`. The hook has no owner, admin, pause or upgrade.
 
 ---
 
@@ -493,7 +454,7 @@ Every folder has a README index.
 | [`frontend/src/app/`](frontend/src/app/) | The app at `/app`: explorer, create, dashboard, manager console, settle and claim | [README](frontend/src/app/README.md) |
 | [`frontend/src/site/`](frontend/src/site/) | The landing page | [README](frontend/src/site/README.md) |
 | [`frontend/api/`](frontend/api/) | `POST /api/draft`, the AI mandate drafter (OpenRouter, server-side only) | [README](frontend/api/README.md) |
-| [`docs/`](docs/) | The wordmark, logo and demo notes; the README's diagrams are Mermaid, in the README itself | [README](docs/README.md) |
+| [`docs/`](docs/) | The wordmark, logo and header diagram, and the pages that draw them; the other diagrams are Mermaid, in this README | [README](docs/README.md) |
 
 ```
 src/Leash.sol              the hook: mandates, auction, liquidity, TWAP, compliance, settlement
@@ -513,10 +474,10 @@ scripts/local.sh           one command: fresh anvil with everything deployed
 scripts/keeper.sh          keeper: finds every mandate from logs, checkpoints and settles each every minute
 deployments/               addresses per chain, and the ABI for the frontend
 frontend/                  landing page, app and AI drafter (Vite + React + TypeScript)
-docs/                      the wordmark, the logo and the page that renders the wordmark (src/)
+docs/diagrams/             the header diagram (PNG + SVG) and the rough.js pages that draw it and the wordmark (src/)
 ```
 
-The diagrams in this README are Mermaid blocks, which GitHub renders; edit them in place. The wordmark is `docs/src/wordmark.html?mode=light|dark`, rendered by `node docs/src/render.mjs wordmark.html docs/wordmark-dark.png --transparent` (headless Chrome).
+The header diagram is drawn by `docs/diagrams/src/leash.html` with rough.js and rendered by `node docs/diagrams/src/render.mjs leash.html docs/diagrams/leash.png docs/diagrams/leash.svg` (headless Chrome). The other diagrams are Mermaid blocks, which GitHub renders; edit them in place. The wordmark is `docs/diagrams/src/wordmark.html?mode=light|dark`, rendered with `--transparent`.
 
 ## Roadmap
 

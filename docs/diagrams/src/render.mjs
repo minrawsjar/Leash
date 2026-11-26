@@ -1,4 +1,4 @@
-// node docs/src/render.mjs <page.html> <out.png> [out.svg] [--transparent]
+// node docs/diagrams/src/render.mjs <page.html> <out.png> [out.svg] [--transparent]
 // Serves this folder over http, opens the page in headless Chrome, waits for window.__done,
 // screenshots #root at 2x, and (optionally) saves the page's <svg id="d"> as a standalone file.
 import { spawn } from 'node:child_process';

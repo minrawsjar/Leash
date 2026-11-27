@@ -1,12 +1,12 @@
 # Demo Video Plan (UHI11 Hookathon)
 
-> **A video under 5 minutes (the hookathon's limit): the problem on six slides, the architecture, a live mandate on Unichain Sepolia, the attack failing in a terminal, and the verified hook. Plus a 60-second cut.**
+> **A video under 5 minutes (the hookathon's limit): a real market-maker dump, the problem on seven slides, the architecture, a live mandate on Unichain Sepolia, the attack failing in a terminal, and the verified hook. Plus a 60-second cut.**
 
 ## Before Recording
 
 | What | How |
 |---|---|
-| Problem slides | The six-slide deck ("Leash: The Problem"), presented full screen. Each slide's speaker notes hold its lines below |
+| Problem slides | The seven-slide deck ("Leash: The Problem"), presented full screen. Each slide's speaker notes hold its lines below |
 | Architecture | [`diagrams/leash-architecture.excalidraw`](diagrams/leash-architecture.excalidraw) opened at excalidraw.com (File › Open), zoomed to fit |
 | App, treasury | [leash.website/app](https://leash.website/app) on Unichain Sepolia, the treasury wallet connected, on `#/create` |
 | App, manager | A second browser profile with the manager wallet, on [leash.website/app](https://leash.website/app) |
@@ -30,29 +30,32 @@ The live mandate runs on real time (a 15-minute auction, then three 1-hour epoch
 | Any time | D: the slides. E: the Excalidraw architecture. F: `./scripts/demo.sh`. G: Blockscout | – |
 | About 1 h 20 min after posting | H: once the keeper settles epoch 0, the Settle & claim tab and `#/managers` | Manager |
 
-## Shot List: 4 Minutes 50 Seconds
+## Shot List: 4 Minutes 30 Seconds
 
 | Time | On screen | Voiceover (word for word) |
 |---|---|---|
-| 0:00 to 0:08 | D, slide 1: the title | "This is Leash: a Uniswap v4 hook that lets a token treasury hire a market maker without handing over its tokens." |
-| 0:08 to 0:20 | D, slide 2: the situation | "Token treasuries hold most of their money in their own token. To pay for anything, they have to sell some of it, and selling your own token without crashing its price is hard." |
-| 0:20 to 0:40 | D, slide 3: the three options | "There are three ways to do it today, and each one costs the treasury. Dumping on the market moves the price against you. An OTC deal sells at a discount, usually to someone who dumps it anyway. Hiring a market maker means handing over the tokens and trusting reports you can't verify." |
-| 0:40 to 0:47 | D, slide 4: the question | "So what if the market maker could run the liquidity, but never touch the money?" |
-| 0:47 to 1:05 | D, slide 5: the attack in three steps | "There's a harder problem too. Even with no withdraw button, the real risk is mispricing: push the price, re-place the treasury's liquidity at the fake price, and trade it back. Leash is built to make every step of that cost more than it returns." |
-| 1:05 to 1:20 | D, slide 6: the answer | "The treasury deposits into the hook and posts a mandate: the rules. Managers bid a first-loss bond. The winner moves the liquidity and sets the fee, and can never withdraw. Every swap is checked against the hook's own TWAP. A clean epoch pays the manager; a breach slashes the bond." |
-| 1:20 to 1:45 | E: pan left to right across the architecture | "On the left: the treasury, the manager, and a keeper anyone can run. In the middle, the hook: a ledger per mandate, a TWAP oracle it records itself, the bond auction, a compliance clock, rebalance guards and settlement. On the right, Uniswap's PoolManager calls the hook before every swap. Inventory only ever moves between the hook and the pool, or back to the treasury. No owner, no admin, no upgrades." |
-| 1:45 to 2:10 | A, at 2x through the signatures | "This is live on Unichain Sepolia. As the treasury, I post a mandate: a hundred thousand TKN and two hundred thousand mUSDC, a fifteen-minute auction, three one-hour epochs, and a ten-thousand-dollar minimum bond. The form checks every rule before anything is signed. The hook creates the pool, places the opening position and a permanent full-range anchor." |
-| 2:10 to 2:22 | B | "From a second wallet, a manager bids the bond. Anyone can outbid it until the auction closes, and an outbid bond is refunded." |
-| 2:22 to 2:45 | C | "The auction has closed and the manager is live. Every trade pays fees into the treasury's position. The dashboard reads everything from the chain: spot against the TWAP, the manager's range, and the three checks, in range, deep enough and on pace, counted in seconds." |
-| 2:45 to 2:52 | F: type `./scripts/demo.sh`, enter | "Now the attack, on a fresh local chain where we control the clock." |
-| 2:52 to 3:30 | F, step 4. Highlight `REVERTED SpotOffTwap()`, the `4300 pips` fee line, and `REVERTED on chain with SameBlock()` | "The manager sells into the pool and pushes the price a hundred and fifty ticks off fair value, then tries to re-range around the fake price. Reverted: spot is too far from the TWAP. It pushes further, and the fee rises from 0.30 to 0.43 percent, because spot is off the TWAP. Last try: nudge the price and grow the position in the same block. Reverted on chain. The sandwich has nothing to stand on." |
-| 3:30 to 3:45 | F, step 5: `clean=true`, the manager's and the keeper's `owed` lines | "Epoch zero ends clean. Anyone can settle it; the keeper does, and earns a small bounty. The manager is owed thirty percent of the fees. The treasury keeps the rest." |
-| 3:45 to 4:05 | F, step 6: `out 241 s`, `allowance 180 s`, the slash line | "Epoch one: the market drops ten percent and the manager is asleep. The hook counts every second out of range: two hundred and forty-one, against an allowance of one hundred and eighty. A third of the bond goes to the treasury. At twice the allowance, all of it would." |
-| 4:05 to 4:12 | F, step 7: `close()`, the final balances | "The treasury closes and takes back all its inventory." |
-| 4:12 to 4:27 | H | "Back on Unichain Sepolia, the keeper has settled epoch zero of our live mandate. The manager's pay is claimable, and the epoch joins its public track record." |
-| 4:27 to 4:50 | G, then back to slide 1 | "Leash is a hundred and one forge tests, full coverage of the hook, and every finding from two internal audit rounds kept as a test. It's live and source verified on Unichain Sepolia, with no owner, no admin and no upgrade path. Hire a market maker. Keep the leash." |
+| 0:00 to 0:20 | D, slide 1: the MOVE incident | "In March 2025, Binance said a market maker for the MOVE token sold sixty-six million tokens the day after listing, into a market with almost no buyers, and kept thirty-eight million dollars. The token's team said it had no idea. That's what hiring a market maker can look like today." |
+| 0:20 to 0:28 | D, slide 2: the title | "This is Leash: a Uniswap v4 hook that lets a token treasury hire a market maker without handing over its tokens." |
+| 0:28 to 0:38 | D, slide 3: the situation | "Token treasuries hold most of their money in their own token. To pay for anything, they have to sell some, without crashing the price." |
+| 0:38 to 0:52 | D, slide 4: the three options | "Dump it on the market, and the price falls. Sell it OTC, and you sell at a discount. Hire a market maker, and you hand over the tokens and trust reports you can't verify." |
+| 0:52 to 0:58 | D, slide 5: the question | "So what if the market maker could run the liquidity, but never touch the money?" |
+| 0:58 to 1:16 | D, slide 6: the attack in three steps | "There's a harder problem too. Even with no withdraw button, the real risk is mispricing: push the price, re-place the treasury's liquidity at the fake price, and trade it back. Leash is built to make every step of that cost more than it returns." |
+| 1:16 to 1:38 | D, slide 7: the answer | "The treasury deposits into the hook and posts a mandate: the rules. Managers bid a first-loss bond. The winner moves the liquidity and sets the fee, but can never withdraw, so the tokens only ever sell to real buyers in the pool. Every swap is checked against the hook's own TWAP, and every epoch pays the manager or slashes the bond." |
+| 1:38 to 1:58 | E: pan left to right across the architecture | "On the left: the treasury, the manager, and a keeper anyone can run. In the middle, the hook: a ledger, its own TWAP oracle, the bond auction, a compliance clock, rebalance guards and settlement. On the right, Uniswap's PoolManager calls the hook before every swap. No owner, no admin, no upgrades." |
+| 1:58 to 2:18 | A, at 2x through the signatures | "This is live on Unichain Sepolia. As the treasury, I post a mandate: a hundred thousand TKN and two hundred thousand mUSDC, a fifteen-minute auction, three one-hour epochs, a ten-thousand-dollar minimum bond. The hook creates the pool and places the opening position and a permanent anchor." |
+| 2:18 to 2:26 | B | "From a second wallet, a manager bids the bond. Anyone can outbid it until the auction closes." |
+| 2:26 to 2:43 | C | "The manager is live. Every trade pays fees into the treasury's position, and the dashboard reads it all from the chain: spot against the TWAP, the manager's range, and whether it's in range, deep enough and on pace." |
+| 2:43 to 2:48 | F: type `./scripts/demo.sh`, enter | "Now the attack, on a local chain where we control the clock." |
+| 2:48 to 3:22 | F, step 4. Highlight `REVERTED SpotOffTwap()`, the `4300 pips` fee line, and `REVERTED on chain with SameBlock()` | "The manager sells into the pool and pushes the price a hundred and fifty ticks off fair value, then tries to re-range around the fake price. Reverted: spot is too far from the TWAP. It pushes further, and the fee rises from 0.30 to 0.43 percent, because spot is off the TWAP. Last try: nudge the price and grow the position in the same block. Reverted on chain. The sandwich has nothing to stand on." |
+| 3:22 to 3:33 | F, step 5: `clean=true`, the manager's and the keeper's `owed` lines | "Epoch zero ends clean. The keeper settles it and earns a small bounty; the manager is owed thirty percent of the fees." |
+| 3:33 to 3:50 | F, step 6: `out 241 s`, `allowance 180 s`, the slash line | "Epoch one: the market drops ten percent and the manager is asleep. Two hundred and forty-one seconds out of range, against an allowance of one hundred and eighty: a third of the bond goes to the treasury." |
+| 3:50 to 3:55 | F, step 7: `close()`, the final balances | "The treasury closes and takes everything back." |
+| 3:55 to 4:05 | H | "Back on Unichain Sepolia, the keeper has settled epoch zero of our live mandate, and the manager's pay is claimable." |
+| 4:05 to 4:30 | G, then back to slide 2 | "A hundred and one forge tests, full coverage of the hook, every audit finding kept as a test, and source verified on Unichain Sepolia. A market maker on a leash can't walk off with the tokens: it earns its share, or it loses its bond. Hire a market maker. Keep the leash." |
 
-About 660 words: 4 min 35 s of speech at a calm 145 words a minute, with room for pauses, ten seconds under the limit. If the epoch-0 settlement on testnet isn't ready, drop H (4:12 to 4:27) and the video ends at 4:35.
+About 620 words: 4 min 17 s of speech at a calm 145 words a minute, with room for pauses, 30 seconds under the limit. If the epoch-0 settlement on testnet isn't ready, drop H (3:55 to 4:05) and the video ends at 4:20.
+
+The opening is sourced: Binance's own statement of March 2025, reported by [The Block](https://www.theblock.co/news/markets/2025-03-25-binance-move-market-maker-movement-38-million-usdt-buyback-program-347931) and [Blockworks](https://blockworks.co/news/binance-movement-market-maker-investigation). Binance did not name the market maker, and neither does the video.
 
 ### Terminal lines to zoom on
 
